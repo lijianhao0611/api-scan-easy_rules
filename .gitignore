@@ -9,6 +9,12 @@ data/
 # Skill 配置文件
 .claude/settings.local.json
 .claude/skills/*/config/rule.json
+# 保留空 config 目录（用 .gitkeep 占位）
+!.claude/skills/*/config/.gitkeep
+
+# 规则文件
+rule.json
+all_extracted_rules_strict.json
 
 # Python
 __pycache__/
