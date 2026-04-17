@@ -53,10 +53,18 @@
 - 错误码处理步骤完整性
 - 自定义错误码格式与官方定义的匹配
 
-### E. 规则驱动审计
+### E. 规则驱动审计（逐条独立审计）
 
-对 active_rules.json 中的每条规则，审计 API 的实现代码和声明：
+对 active_rules.json 中的**每条规则逐条独立审计** API 的实现代码和声明：
 
+**关键原则**：
+- **逐条独立**：每条规则必须独立判断，不得因为已匹配某条规则而跳过或省略其他规则的检查
+- **多规则可同触发**：同一个 API 可以同时违反多条规则，应分别输出为独立的 finding。例如：
+  - 实现返回了 `null` 但声明未定义 `| null` → 同时违反规则 3.2.6（返回值定义不完备）和规则 5.1.2.11（未显式声明 null/undefined），应输出两条 finding
+  - 声明类型为 `Array<T> | null` → 同时违反规则 5.1.7.8（数组不应声明可空）和规则 5.1.2.11（显式声明检查），应输出两条 finding
+- **每条违规独立输出**：不同 `rule_id` 的违规必须作为独立的 finding 分别输出，不得合并为一条
+
+**审计步骤**：
 - 读取实现函数体（错误处理分支、返回路径）
 - 读取声明文件中的 js_doc（`@throws`、`@permission`、`@systemapi`）
 - 检查错误码映射（沿调用链追踪）
@@ -112,6 +120,7 @@
 
 **关键规则**：
 - 同一 `rule_id` + 同一 API 的多处违反必须合并为一条 finding，所有违反点放入 `evidence` 数组
+- **不同 `rule_id` + 同一 API 的违反必须分别输出为独立的 finding，不得合并为一条**（例如同一 API 同时违反 3.2.6 和 5.1.2.11 时，必须输出两条 finding）
 - 9 个必需字段：`rule_id`、`rule_description`、`finding_description`、`evidence`、`component`、`affected_apis`、`modification_suggestion`、`severity_level`、`affected_error_codes`
 - 字段名必须使用英文
 - `severity_level` 必须是 `严重`/`高`/`中`/`低` 四选一
@@ -183,6 +192,8 @@
 
 - 字段名使用中文名（如 `"编号"` 而非 `"rule_id"`）→ 必须使用英文字段名
 - 同一 rule_id + 同一 API 拆成多条 finding → 必须合并为一条
+- **不同 rule_id + 同一 API 合并为一条 finding → 必须拆分为独立的多条 finding**（例如同一 API 同时违反 3.2.6 和 5.1.2.11 时，严禁合并为一条 finding）
+- **因已匹配某条规则而跳过其他规则的检查 → 每条规则必须独立审计，不得跳过**
 - 缺少 `evidence` 或 `evidence` 为空数组 → 至少一条证据
 - `evidence[].line` 为 0 或负数 → 必须大于 0
 - `severity_level` 使用英文 → 必须中文（`严重`/`高`/`中`/`低`）

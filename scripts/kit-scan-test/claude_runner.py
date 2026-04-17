@@ -31,6 +31,7 @@ def _run_once(prompt: str) -> Tuple[bool, str]:
     Returns:
         (success, output)
     """
+    prompt = prompt.replace("\n", "\\n")  # 确保 prompt 在命令行中正确传递
     cmd = [
         CLAUDE_CLI,
         "-p",
