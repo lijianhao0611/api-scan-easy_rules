@@ -5,6 +5,24 @@
 
 ---
 
+发现新模式时，按以下格式在下方添加：
+
+```markdown
+    ### 模式N：{模式名称}
+
+    **描述**：{简要描述映射机制}
+
+    **正则表达式**：{可用于 grep/搜索的正则}
+
+    **代码结构**：
+    ```cpp
+    {示例代码}
+    ```
+    **关键文件位置**：{通常出现的目录路径模式}
+```
+
+---
+
 ### 模式1：DECLARE_NAPI_FUNCTION 宏注册
 
 **描述**：最传统的 NAPI 函数注册方式，通过宏将 JS 方法名映射到 C++ 函数。通常出现在 `napi_property_descriptor` 数组中。
@@ -289,24 +307,6 @@ class InsightIntentContext {
 
 **关键文件位置**：`frameworks/js/napi/insight_intent_context/` 等 Context 类模块
 
----
-
-发现新模式时，按以下格式追加：
-
-```markdown
-### 模式N：{模式名称}
-
-**描述**：{简要描述映射机制}
-
-**正则表达式**：{可用于 grep/搜索的正则}
-
-**代码结构**：
-```cpp
-{示例代码}
-```
-
-**关键文件位置**：{通常出现的目录路径模式}
-```
 
 ### 模式14：JSI NativeModule Bridge（ArkUI 组件属性绑定）
 
@@ -364,3 +364,273 @@ class Font {
 **正则表达式**：`ANI_Constructor\s*\(|Namespace_BindNativeFunctions\s*\(`
 
 **关键文件位置**：`window_window_manager/interfaces/kits/ani/`
+
+
+
+### 模式17：自定义模板方法注册 (Method<>/GetProperty<>/GetSetProperty<>)
+
+**描述**：ArkGraphics3D 不使用标准 DECLARE_NAPI_FUNCTION 宏，而是通过自定义模板函数指针将 JS 方法名映射到 C++ 类成员函数。每个模板接收 NAPI 上下文类型、类名和成员函数指针，在 napi_define_class 的属性描述符数组中注册。
+
+**正则表达式**：`Method<.*,\s*(\w+),\s*&\w+::(\w+)>|GetProperty<.*,\s*(\w+),\s*&\w+::(\w+)>|GetSetProperty<.*,\s*(\w+)`
+
+**代码结构**：
+```cpp
+napi_property_descriptor descs[] = {
+    Method<NapiApi::FunctionContext<>, SceneJS, &SceneJS::GetNodeByPath>("getNodeByPath"),
+    GetProperty<NapiApi::Array, SceneJS, &SceneJS::GetAnimations>("animations"),
+    GetSetProperty<NapiApi::Object, SceneJS, &SceneJS::GetEnvironment, &SceneJS::SetEnvironment>("environment"),
+};
+napi_define_class(env, "Scene", NAPI_AUTO_LENGTH, SceneJS::Constructor, ...);
+```
+
+**关键文件位置**：`graphic_graphic_3d/kits/js/src/` 下各 `*JS.cpp` 文件，模板定义在 `kits/js/include/` 下的辅助头文件中
+
+---
+
+### 模式18：napi_default_jsproperty + FromJs() 数据持有者模式
+
+**描述**：几何定义类(CustomGeometry, CubeGeometry 等)的 getter/setter 属性全部声明为 `napi_default_jsproperty`，C++ 层不拦截属性访问。数据在 JS 引擎中存储，仅在 createGeometry 调用时通过 `FromJs()` 静态方法一次性读取和验证。这是一种"延迟消费"模式。
+
+**正则表达式**：`napi_default_jsproperty.*\n.*napi_default_jsproperty` 或 `FromJs\s*\(.*napi_env.*napi_value`
+
+**代码结构**：
+```cpp
+napi_property_descriptor desc[] = {
+    {"vertices", nullptr, nullptr, nullptr, nullptr, nullptr, napi_default_jsproperty, nullptr},
+    {"indices", nullptr, nullptr, nullptr, nullptr, nullptr, napi_default_jsproperty, nullptr},
+};
+napi_define_class(env, "CustomGeometry", NAPI_AUTO_LENGTH, defaultCtor, ...);
+
+static std::unique_ptr<Geometry> FromJs(napi_env env, napi_value obj) {
+    auto vertices = GetArrayProperty<Vec3>(env, obj, "vertices");
+    auto indices = GetArrayProperty<int>(env, obj, "indices");
+}
+```
+
+**关键文件位置**：`graphic_graphic_3d/kits/js/src/geometry_definition/` 下各文件
+
+---
+
+### 模式19：MakeTROMethod / DeclareMethod 多态注册模式
+
+**描述**：ArkGraphics3D 中根据类的继承层级使用不同的方法注册辅助宏：
+- `MakeTROMethod` — 用于继承自 TrueRootObject 的类(NodeImpl, SceneResourceImpl)
+- `DeclareMethod/DeclareGetSet` — 用于继承自 BaseObject 的类(AnimationJS, ShaderJS, EffectJS)
+- `ECMethod` — 用于非 BaseObject 的 Container 类(NodeContainerJS, EffectsContainerJS)
+
+**正则表达式**：`MakeTROMethod\s*\(|DeclareMethod\s*\(|ECMethod\s*\(`
+
+**代码结构**：
+```cpp
+// MakeTROMethod — TrueRootObject 子类
+napi_property_descriptor nodeDescs[] = {
+    MakeTROMethod(NodeImpl, GetNodeByPath),
+};
+
+// DeclareMethod — BaseObject 子类
+static DeclareMethod<AnimationJS>(env, proto, "start", &AnimationJS::Start);
+
+// ECMethod — Container 类
+ECMethod("append", NodeContainerJS::Append),
+```
+
+**关键文件位置**：`graphic_graphic_3d/kits/js/src/` 下各 `*JS.cpp` 文件
+
+### 模式20：JSI 静态方法绑定（ArkUI 早期组件绑定）
+
+**描述**：Web 等早期 ArkUI 组件不使用 `arkts_native_*_bridge.cpp`（模式14），而是通过 `JSWeb::JSBind()` + `JSClass<JSWeb>::StaticMethod()` / `CustomMethod()` 进行 JSI 绑定。这是 ArkUI 框架中较早期的组件属性/事件注册方式。每个组件有对应的 `js_*.cpp` 文件，通过 `JSBind` 静态方法注册所有属性和事件。
+
+**正则表达式**：`JSClass<JS\w+>::(StaticMethod|CustomMethod)\s*\(` 或 `JS\w+::JSBind\s*\(`
+
+**代码结构**：
+```cpp
+// js_web.cpp — Web 组件绑定
+void JSWeb::JSBind(Bridge& bridge)
+{
+    JSClass<JSWeb>::StaticMethod("webviewController", &JSWeb::CreateWebviewController);
+    JSClass<JSWeb>::StaticMethod("onSslErrorEventReceive", &JSWeb::JsOnSslErrorEventReceive);
+    JSClass<JSWeb>::CustomMethod("javaScriptProxy", &JSWeb::JsJavaScriptProxy);
+    ...
+}
+
+// js_web_controller.cpp — WebController 绑定
+void JSWebController::JSBind()
+{
+    JSClass<JSWebController>::StaticMethod("runJavaScript", &JSWebController::RunJavaScript);
+    ...
+}
+```
+
+**映射链路**：
+```
+.d.ts/ets 声明 → js_*.cpp (JSI 绑定，JSClass::StaticMethod/CustomMethod)
+              → *_model.h / *_model_ng.h (Framework 声明)
+              → frameworks/core/components_ng/pattern/*/ (业务逻辑)
+```
+
+**关键文件位置**：`arkui_ace_engine/frameworks/bridge/declarative_frontend/jsview/js_web.cpp`
+
+---
+
+### 模式21：DECLARE_NAPI_FUNCTION_WRITABLE（可写属性函数注册）
+
+**描述**：Camera Kit 使用 `DECLARE_NAPI_FUNCTION_WRITABLE` 宏注册方法，与标准 `DECLARE_NAPI_FUNCTION` 类似但注册后的属性描述符为可写（writable）。常见于需要在运行时动态替换的 NAPI 方法。
+
+**正则表达式**：`DECLARE_NAPI_FUNCTION_WRITABLE\s*\(\s*"([^"]+)"\s*,\s*(\w+)`
+
+**代码结构**：
+```cpp
+napi_property_descriptor camera_input_props[] = {
+    DECLARE_NAPI_FUNCTION_WRITABLE("open", Open),
+    DECLARE_NAPI_FUNCTION_WRITABLE("close", Close),
+    DECLARE_NAPI_FUNCTION("release", Release),
+};
+```
+
+**关键文件位置**：`multimedia_camera_framework/frameworks/js/camera_napi/src/input/camera_input_napi.cpp`
+
+---
+
+### 模式22：DECLARE_NAPI_STATIC_FUNCTION（静态方法注册）
+
+**描述**：用于注册类的静态方法（不需要实例化即可调用）。Camera Kit 的 `CameraPicker.pick()` 使用此模式。
+
+**正则表达式**：`DECLARE_NAPI_STATIC_FUNCTION\s*\(\s*"([^"]+)"\s*,\s*(\w+)`
+
+**代码结构**：
+```cpp
+napi_property_descriptor camera_picker_static_props[] = {
+    DECLARE_NAPI_STATIC_FUNCTION("pick", Pick),
+    DECLARE_NAPI_PROPERTY("PickerResult", ...),
+};
+```
+
+**关键文件位置**：`multimedia_camera_framework/frameworks/js/camera_napi/src/picker/camera_picker_napi.cpp`
+
+---
+
+### 模式23：双层 NAPI 动态加载架构（camera_napi_base + camera_napi_ex）
+
+**描述**：Camera Kit 使用了双层 NAPI 架构。基础层 `camera_napi_base` 提供公共 API，扩展层 `camera_napi_ex` 通过动态加载机制提供系统级 API（`@systemapi` 标记）。`camera_napi_ex` 由 `dynamic_loader/camera_napi_ex_manager.cpp` 和 `camera_napi_ex_proxy.cpp` 管理加载。
+
+**识别特征**：
+- 同一代码仓有两个 NAPI 目录：`camera_napi/` 和 `camera_napi_for_sys/`
+- BUILD.gn 中有 `camera_napi_base` 和 `camera_napi_ex` 两个独立 target
+- `camera_napi_ex` 的 Init 函数在运行时通过动态加载注册
+- 扩展层的类名通常带 `ForSys` 后缀
+
+**代码结构**：
+```cpp
+// camera_napi/src/native_module_ohos_camera.cpp — 基础层
+static napi_value Export(napi_env env, napi_value exports) {
+    CameraManagerNapi::Init(env, exports);  // 公共 API
+    CameraSessionNapi::Init(env, exports);  // 公共 session
+}
+
+// camera_napi_for_sys/src/mode/profession_session_napi.cpp — 扩展层
+// 通过动态加载注册系统级 API
+napi_value ProfessionSessionNapi::Init(napi_env env, napi_value exports) {
+    // 注册专业模式等系统级接口
+}
+```
+
+**关键文件位置**：
+- 基础层：`multimedia_camera_framework/frameworks/js/camera_napi/`
+- 扩展层：`multimedia_camera_framework/frameworks/js/camera_napi_for_sys/`
+- 动态加载：`multimedia_camera_framework/frameworks/js/camera_napi/src/dynamic_loader/`
+
+---
+
+### 模式24：MergeAllDesc 合并描述符模式（NFC 标签多类导出）
+
+**描述**：NFC 标签模块中，各标签子类（NfcATag、NfcBTag、NfcFTag、NfcVTag、IsoDepTag 等）的方法通过 `MergeAllDesc` 函数将基类 `g_baseClassDesc` 的方法与各子类的描述符合并，实现多类方法到单一 NAPI 模块的导出。基类方法对应 tagSession 模块，子类方法对应 nfctech 模块。
+
+**正则表达式**：`MergeAllDesc\s*\(`
+
+**代码结构**：
+```cpp
+// nfc_napi_tag.cpp
+napi_property_descriptor g_baseClassDesc[] = {
+    DECLARE_NAPI_FUNCTION("connect", Connect),
+    DECLARE_NAPI_FUNCTION("close", Close),
+    DECLARE_NAPI_FUNCTION("transmit", Transmit),
+};
+
+// 各标签子类
+napi_property_descriptor nfcADesc[] = {
+    DECLARE_NAPI_FUNCTION("getAtqa", GetAtqa),
+    DECLARE_NAPI_FUNCTION("getSak", GetSak),
+};
+
+// 合并基类和子类描述符
+napi_property_descriptor* allDesc = MergeAllDesc(g_baseClassDesc, nfcADesc);
+napi_define_class(env, "NfcATag", NAPI_AUTO_LENGTH, Constructor, ...);
+```
+
+**关键文件位置**：`communication_nfc/frameworks/js/napi/tag/nfc_napi_tag.cpp` 及各 `nfc_napi_tag*.cpp` 子文件
+
+---
+
+### 模式25：Sys* 前缀系统 API 变体模式
+
+**描述**：`@system.xxx` 系列系统 API 的 C++ 实现函数使用 `Sys` 前缀命名（如 `SysStartBLEScan`），与同名标准 API 的函数（如 `StartBLEScan`）共存于同一 NAPI 模块中。两种 API 通过不同的 JS 方法名注册到同一个 exports 对象。
+
+**正则表达式**：`DECLARE_NAPI_FUNCTION\s*\(\s*"[^"]*"\s*,\s*Sys\w+`
+
+**代码结构**：
+```cpp
+// napi_bluetooth_ble.cpp
+napi_property_descriptor desc[] = {
+    DECLARE_NAPI_FUNCTION("startBLEScan", StartBLEScan),      // @ohos.bluetooth.ble
+    DECLARE_NAPI_FUNCTION("stopBLEScan", StopBLEScan),        // @ohos.bluetooth.ble
+    DECLARE_NAPI_FUNCTION("startBLEScan", SysStartBLEScan),   // @system.bluetooth (条件编译)
+    DECLARE_NAPI_FUNCTION("stopBLEScan", SysStopBLEScan),     // @system.bluetooth (条件编译)
+};
+```
+
+**关键文件位置**：`communication_bluetooth/frameworks/js/napi/src/ble/napi_bluetooth_ble.cpp`
+
+---
+
+### 模式26：nm_modname 无独立模块的 API（注册在其他模块下）
+
+**描述**：部分 JS API 模块（如 nfctech、tagSession）在 NAPI 层没有独立的 nm_modname 注册，而是将其 API 方法注册到相关联的模块中。例如 nfctech 的各标签类型方法注册在 "nfc.tag" 模块下，通过 napi_define_class 的类名区分。声明文件中的模块名（nfctech）与实际 NAPI 模块名（nfc.tag）不同。
+
+**识别特征**：
+- API 声明文件的模块名（如 `nfctech`）在 DataBases 中找不到对应的 nm_modname
+- API 方法实际注册在功能相近的模块中（如 `nfc.tag`）
+- 通过 napi_define_class 的类名或 JS 方法名匹配定位
+
+**搜索策略**：当 nm_modname 搜索无结果时，在相关功能模块的 NAPI 入口文件中搜索 API 方法名。
+
+---
+
+### 模式27：dlopen/dlsym 动态加载 SDK 模式
+
+**描述**：NAPI 层通过 `dlopen` 在运行时加载外部 SDK 共享库（如 `/system/lib64/platformsdk/libxxx.z.so`），再通过 `dlsym` 按函数名获取函数指针进行调用。SDK 本身不在当前代码仓中，实际业务逻辑完全委托给外部库。常配合条件编译宏（如 `#ifdef FEATURE_ENABLE`）控制是否启用。
+
+**正则表达式**：`dlopen\s*\(.*\.so` 或 `dlsym\s*\(\s*\w+\s*,\s*"(\w+)"`
+
+**代码结构**：
+```cpp
+// NAPI 函数实现
+napi_value ScanFile(napi_env env, napi_callback_info info) {
+    void* handle = dlopen("/system/lib64/platformsdk/libdia_sdk.z.so", RTLD_LAZY);
+    auto func = (FuncType)dlsym(handle, "IdentifySensitiveFileC");
+    func(policyC, policyLength, &filePath, &matchResults, &matchResultLength);
+    dlclose(handle);
+}
+```
+
+**映射链路**：
+```
+.d.ts 声明 → NAPI (dlopen + dlsym) → 外部 SDK .so（不在 DataBases 中）
+```
+
+**识别特征**：
+- `impl_file_path` 为空或仅指向 NAPI 文件本身
+- `Framework_decl_file` 为空（无中间 Framework 层）
+- NAPI 代码中包含 `dlopen`/`dlsym` 调用
+- 可能有 `#ifdef` 条件编译包裹
+
+**关键文件位置**：`interfaces/kits/*/napi/src/` 下使用 dlopen 的 NAPI 文件

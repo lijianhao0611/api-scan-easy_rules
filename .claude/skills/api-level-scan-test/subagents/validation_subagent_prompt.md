@@ -23,6 +23,8 @@
 - 提取 `findings` 数组
 - 合并到一个总的 findings 列表中
 
+如果 `{{out_path}}/api_scan/precheck_findings.json` 存在，读取其 `findings` 数组并合并到总的 findings 列表中。
+
 将合并结果写入 `{{out_path}}/api_scan/raw_findings.json`：
 ```json
 {

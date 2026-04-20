@@ -410,6 +410,7 @@ def parse_js_file(file_path, sdk_api_dir=None):
                     "js_doc": '\n'.join(jsdoc_texts),
                     "module_name": module_name,
                     "declaration_file": decl_file,
+                    "api_type": "js",
                     "_kit": kit,
                 })
 
@@ -423,9 +424,10 @@ def parse_js_file(file_path, sdk_api_dir=None):
 # ============================================================
 
 def extract_c_file_metadata(content):
-    """从 C 头文件中提取文件级元数据 (@kit, @syscap)。"""
+    """从 C 头文件中提取文件级元数据 (@kit, @syscap, @library)。"""
     kit = ''
     syscap = ''
+    library = ''
     in_file_block = False
 
     for line in content.split('\n')[:100]:
@@ -442,6 +444,9 @@ def extract_c_file_metadata(content):
                 if not val.startswith('SystemCapability'):
                     val = f"SystemCapability.{val}"
                 syscap = val
+            m = re.match(r'\s*\*\s*@library\s+(\S+)', line)
+            if m:
+                library = m.group(1)
             # @file 标记表示这是文件级注释块
             m = re.match(r'\s*\*\s*@file\b', line)
             if m:
@@ -449,7 +454,7 @@ def extract_c_file_metadata(content):
         if '*/' in stripped and in_file_block:
             in_file_block = False
 
-    return kit, syscap
+    return kit, syscap, library
 
 
 def parse_c_function(line):
@@ -462,8 +467,8 @@ def parse_c_function(line):
     if line.startswith(('#', 'typedef', 'enum', 'struct', 'union', 'extern')):
         return None
 
-    # 匹配函数声明: 返回类型 函数名(参数)
-    m = re.match(r'^([\w\s\*]+?)\b(OH_\w+)\s*\(([^;]*)\)', line)
+    # 匹配函数声明: 返回类型 函数名(参数)，支持 OH_ 和 OHOS_ 前缀
+    m = re.match(r'^([\w\s\*]+?)\b((?:OH|OHOS)_\w+)\s*\(([^;]*)\)', line)
     if m:
         ret = m.group(1).strip()
         name = m.group(2)
@@ -474,7 +479,7 @@ def parse_c_function(line):
     return None
 
 
-def parse_c_file(file_path):
+def parse_c_file(file_path, c_sdk_root=None):
     """解析单个 .h 头文件，返回函数 API 记录列表。"""
     try:
         content = file_path.read_text(encoding='utf-8', errors='replace')
@@ -484,8 +489,31 @@ def parse_c_file(file_path):
     if not content.strip():
         return []
 
-    file_kit, file_syscap = extract_c_file_metadata(content)
-    module_name = file_path.name  # e.g., qos.h
+    file_kit, file_syscap, file_library = extract_c_file_metadata(content)
+
+    # module_name: 从文件路径推导，如 CryptoArchitectureKit/crypto_digest.h → CryptoArchitectureKit.crypto_digest
+    if c_sdk_root:
+        try:
+            rel = file_path.relative_to(c_sdk_root)
+            # 取路径的前两级：CryptoArchitectureKit/crypto_digest.h → CryptoArchitectureKit.crypto_digest
+            parts = rel.with_suffix('').parts
+            if len(parts) >= 2:
+                module_name = f"{parts[0]}.{parts[-1]}"
+            else:
+                module_name = parts[0]
+        except ValueError:
+            module_name = file_path.stem
+    else:
+        module_name = file_path.stem
+
+    # declaration_file: 相对于 SDK 根目录的路径
+    if c_sdk_root:
+        try:
+            declaration_file = str(file_path.relative_to(c_sdk_root))
+        except ValueError:
+            declaration_file = file_path.name
+    else:
+        declaration_file = file_path.name
 
     records = []
 
@@ -532,7 +560,9 @@ def parse_c_file(file_path):
             "api_declaration": sig,
             "js_doc": comment,
             "module_name": module_name,
-            "declaration_file": file_path.name,
+            "declaration_file": declaration_file,
+            "api_type": "c",
+            "library": file_library,
             "_kit": kit,
         })
 
@@ -727,7 +757,7 @@ def main():
         print(f"[C SDK] {c_path}")
         print(f"发现 {len(files)} 个头文件 (.h)\n")
         for fp in files:
-            recs = parse_c_file(fp)
+            recs = parse_c_file(fp, c_sdk_root=c_path)
             for r in recs:
                 kit_records[r['_kit']].append(r)
                 total += 1
