@@ -1,0 +1,13 @@
+{
+  "rules": [
+    {
+      "id": "3.2.6",
+      "description": "返回值定义完备及声明实现一致性",
+      "example": {
+        "good case": "declaration: getConnectionProperties(netHandle: NetHandle): Promise<ConnectionProperties>\nimplementation: 所有异常路径均通过 reject(BusinessError) 返回，且 JSDoc 已声明相关错误场景。\n\n正例参考：\ndeclare function getSupportedPowerMode(): Promise<Array<PowerMode>>;\n// 声明清晰，返回值类型明确，异常通过 BusinessError 返回",
+        "bad case": "反例1（声明返回 string，实现返回空字符串）：\ndeclaration: getInterfaceName(): string\nimplementation: if (!interface) { return ''; } // 空字符串未在声明中定义\n\n反例2（声明返回对象，实现返回 nullptr/undefined）：\ndeclaration: function getDisplayById(id: number): Display\nimplementation: if (g_JsDisplayMap.find(displayId) == g_JsDisplayMap.end()) { return nullptr; } // 声明未包含 null\n\n注意：以上反例同时违反规则 5.1.2.11（未显式声明空值），应分别独立报告。"
+      },
+      "instructions": "检查 API 返回值定义是否覆盖正常、异常和无效场景。需要解析声明文件（.d.ts/.d.ets）中的返回类型、回调参数类型、联合类型定义，并扫描 NAPI/C++ 实现中的 return、reject、throw、callback(err, data)、napi_resolve_deferred、napi_get_undefined、return nullptr 等分支。\n\n重点检查以下返回模式的完备性：\n1. 数字类型：是否定义了返回范围，极值出现条件\n2. 布尔类型：是否定义了 true/false 各自的触发条件\n3. 数组/集合类型：是否定义了返回空集合、null、undefined 的场景（含 Promise<Array<T>> | null 模式）\n4. 枚举类型：每种枚举值的触发条件是否准确定义\n5. 对象类型：是否定义了返回 null/undefined 的场景（含 return nullptr、napi_get_undefined 后 return 的实现路径）\n6. Error 回调参数：无异常时应使用 null（如 AsyncCallback 中 callbackValue[0] = null 表示成功），不应使用非 null 表示无异常\n\nNAPI/C++ 实现中需重点扫描的返回路径：\n1. return nullptr — 映射为 JS 的 null，检查声明是否包含 | null\n2. napi_get_undefined(env, &result) 后 return result — 映射为 JS 的 undefined，检查声明是否包含 | undefined\n3. napi_resolve_deferred(env, deferred, result) — Promise resolve 的值，检查 result 的实际值是否在声明类型范围内\n4. callbackValue[0] = null / napi_get_null(env, &callbackValue[0]) — 回调第一个参数（err 位）为 null 表示成功\n5. return \"\" 或 return 0 等伪空值 — 声明未定义该返回场景时违规\n6. return NapiGetUndefined(env) — 工具函数返回 undefined，等同于 napi_get_undefined\n\n若实现中存在声明外返回值（如声明返回 string 但实现返回空字符串、声明返回对象但实现 return nullptr），或异常场景未定义返回行为，则判定为违规。\n\n重要：本规则独立判断。当 API 实现中存在返回空值但声明未定义该场景时，本规则检查「返回值定义是否完备」。与此同时，若空值未在类型声明中显式标注，还应独立触发规则 5.1.2.11。两者角度不同（本规则关注返回场景覆盖度，5.1.2.11 关注静态类型声明显式性），不应互相替代。"
+    }
+  ]
+}

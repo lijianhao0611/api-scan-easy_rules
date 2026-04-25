@@ -4,14 +4,24 @@ claude_runner.py - Claude CLI 执行模块
 封装 subprocess 调用 Claude CLI，支持单次执行，失败自动重试（最多 3 次）。
 """
 
+import shutil
 import subprocess
 from pathlib import Path
 from typing import List, Tuple
 
-# Claude CLI 命令名（确保在 PATH 中）
-CLAUDE_CLI: str = "claude"
 
-# 允许的工具列表
+def _detect_cli() -> str:
+    """自动检测可用的 CLI 命令，优先 claude，其次 nga.cmd。"""
+    for cmd in ("claude", "nga.cmd"):
+        if shutil.which(cmd):
+            print(f"[claude_runner] 检测到 CLI: {cmd}")
+            return cmd
+    raise RuntimeError("未找到 claude 或 nga 命令，请确认已安装并加入 PATH")
+
+
+CLAUDE_CLI: str = _detect_cli()
+
+# 允许的工具列表（仅 claude 使用）
 ALLOWED_TOOLS: str = "Bash,Read,Edit,Find,Wc,Write,Search,Python,Grep,Glob,Agent"
 
 # 最大重试次数
@@ -21,66 +31,86 @@ MAX_RETRIES: int = 3
 RETRY_PROMPT_SUFFIX: str = "\n上次未执行完毕，当前是重试，请你阅读已有相关数据，再继续执行"
 
 
+def _build_cmd(prompt: str) -> List[str]:
+    """根据检测到的 CLI 类型构建命令行参数。"""
+    if CLAUDE_CLI == "claude":
+        prompt = prompt.replace("\n", "\\n")
+        return [
+            CLAUDE_CLI,
+            "-p",
+            prompt,
+            "--allowedTools",
+            ALLOWED_TOOLS,
+        ]
+    else:
+        # nga: ["nga.cmd", "run", prompt, "--thinking"]
+        return [
+            CLAUDE_CLI,
+            "run",
+            prompt,
+            "--thinking",
+        ]
+
+
 def _run_once(prompt: str) -> Tuple[bool, str]:
     """
-    执行单次 Claude CLI 命令（无重试）。
+    执行单次 CLI 命令（无重试）。
 
     Args:
-        prompt: 通过 -p 传递的完整 prompt
+        prompt: 传递的完整 prompt
 
     Returns:
         (success, output)
     """
-    prompt = prompt.replace("\n", "\\n")  # 确保 prompt 在命令行中正确传递
-    cmd = [
-        CLAUDE_CLI,
-        "-p",
-        prompt,
-        "--allowedTools",
-        ALLOWED_TOOLS,
-    ]
+    cmd = _build_cmd(prompt)
 
+    
     try:
+        # --- 核心优化点 ---
+        # 1. stderr=subprocess.STDOUT: 将错误流合并到标准输出，防止 stderr 管道填满导致死锁
+        # 2. encoding="cp936": Windows 命令行默认编码是 GBK (cp936)，设为 utf-8 极易导致解码阻塞或乱码
+        # 3. bufsize=1: 行缓冲，配合 text=True 确保 readline 能更快获取数据
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # 关键：合并 stderr，避免单独处理导致的死锁
             text=True,
-            encoding="utf-8",
-            bufsize=0,
+            encoding="utf-8",          # 关键：Windows 中文环境通常使用 cp936 (GBK)
+            bufsize=1                  # 关键：行缓冲，提升实时性
         )
 
         full_output: List[str] = []
         pid = process.pid
-        print(f"[claude_runner] 启动 claude 进程 PID: {pid}")
+        print(f"[claude_runner] 启动进程 PID: {pid}")
 
-        # 实时读取输出
-        while True:
-            line = process.stdout.readline()
+        # --- 实时读取优化 ---
+        # 直接迭代 stdout 对象，比 while+readline 更符合 Python 风格且高效
+        # 注意：因为 stderr 已合并到 stdout，这里能读到所有输出
+        for line in process.stdout:
             if line:
-                print(line, end="")
+                # end="" 是因为读取的行通常自带换行符
+                print(line, end="") 
                 full_output.append(line)
-            if process.poll() is not None and not line:
-                break
 
-        stderr = process.stderr.read().strip() if process.stderr else ""
-        if stderr:
-            print(f"  [stderr] {stderr}")
+        # 等待进程彻底结束并获取返回码
+        process.wait()
 
+        # 因为 stderr 已合并，这里不需要单独读取 stderr
         output = "".join(full_output)
+        
         if process.returncode != 0:
-            print(f"  [错误] claude 进程退出码: {process.returncode}")
+            print(f"\n[错误] 进程退出码: {process.returncode}")
             return False, output
 
         return True, output
 
     except FileNotFoundError:
-        msg = "未找到 claude CLI，请确认已安装并添加到 PATH"
-        print(f"  [错误] {msg}")
+        msg = "未找到命令，请确认环境配置"
+        print(f"[错误] {msg}")
         return False, msg
     except Exception as e:
-        msg = f"调用 claude 失败: {e}"
-        print(f"  [错误] {msg}")
+        msg = f"执行失败: {e}"
+        print(f"[错误] {msg}")
         return False, msg
 
 

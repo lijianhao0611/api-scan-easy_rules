@@ -20,10 +20,10 @@ CSV_PATH: Path = Path(__file__).resolve().parent / "kit_compont.csv"
 SCAN_KIT_SCRIPT: Path = Path(__file__).resolve().parent / "scan_kit.py"
 
 # 固定参数
-JS_DECL_PATH: str = "/Users/spongbob/for_guance/api_dfx/api/interface_sdk-js"
-REPO_BASE: str = "/Users/spongbob/for_guance/api_dfx/DataBases"
-OUT_PATH: str = "/Users/spongbob/for_guance/api_dfx_2.0/scan_out/api-level-scan-test"
-DOC_PATH:str = "/Users/spongbob/for_guance/api_dfx_2.0/data/docs"
+JS_DECL_PATH: str = r"D:\workspace\skill易用性\interface_sdk-js"
+REPO_BASE: str = r"D:\workspace\skill易用性\DataBase"
+OUT_PATH: str = r"D:\workspace\skill易用性\output"
+DOC_PATH:str = r"D:\workspace\skill易用性\docs"
 
 
 def load_unique_kit_names(csv_path: Path) -> list[str]:

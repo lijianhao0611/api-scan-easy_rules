@@ -1,0 +1,103 @@
+{
+  "rules": [
+    {
+      "id": "3.2.6",
+      "description": "返回值定义完备",
+      "example": {
+        "good case": "declaration: getConnectionProperties(netHandle: NetHandle): Promise<ConnectionProperties>\nimplementation: 所有异常路径均通过 reject(BusinessError) 返回，且 JSDoc 已声明相关错误场景。\n\n正例参考：\ndeclare function getSupportedPowerMode(): Promise<Array<PowerMode>>;\n// 声明清晰，返回值类型明确，异常通过 BusinessError 返回",
+        "bad case": "反例1（声明返回 string，实现返回空字符串）：\ndeclaration: getInterfaceName(): string\nimplementation: if (!interface) { return ''; } // 空字符串未在声明中定义\n\n反例2（声明返回对象，实现返回 nullptr/undefined）：\ndeclaration: function getDisplayById(id: number): Display\nimplementation: if (g_JsDisplayMap.find(displayId) == g_JsDisplayMap.end()) { return nullptr; } // 声明未包含 null\n\n注意：以上反例同时违反规则 5.1.2.11（未显式声明空值），应分别独立报告。"
+      },
+      "instructions": "检查 API 返回值定义是否覆盖正常、异常和无效场景。需要解析声明文件（.d.ts/.d.ets）中的返回类型、回调参数类型、联合类型定义，并扫描 NAPI/C++ 实现中的 return、reject、throw、callback(err, data)、napi_resolve_deferred、napi_get_undefined、return nullptr 等分支。\n\n重点检查以下返回模式的完备性：\n1. 数字类型：是否定义了返回范围，极值出现条件\n2. 布尔类型：是否定义了 true/false 各自的触发条件\n3. 数组/集合类型：是否定义了返回空集合、null、undefined 的场景（含 Promise<Array<T>> | null 模式）\n4. 枚举类型：每种枚举值的触发条件是否准确定义\n5. 对象类型：是否定义了返回 null/undefined 的场景（含 return nullptr、napi_get_undefined 后 return 的实现路径）\n6. Error 回调参数：无异常时应使用 null（如 AsyncCallback 中 callbackValue[0] = null 表示成功），不应使用非 null 表示无异常\n\nNAPI/C++ 实现中需重点扫描的返回路径：\n1. return nullptr — 映射为 JS 的 null，检查声明是否包含 | null\n2. napi_get_undefined(env, &result) 后 return result — 映射为 JS 的 undefined，检查声明是否包含 | undefined\n3. napi_resolve_deferred(env, deferred, result) — Promise resolve 的值，检查 result 的实际值是否在声明类型范围内\n4. callbackValue[0] = null / napi_get_null(env, &callbackValue[0]) — 回调第一个参数（err 位）为 null 表示成功\n5. return \"\" 或 return 0 等伪空值 — 声明未定义该返回场景时违规\n6. return NapiGetUndefined(env) — 工具函数返回 undefined，等同于 napi_get_undefined\n\n若实现中存在声明外返回值（如声明返回 string 但实现返回空字符串、声明返回对象但实现 return nullptr），或异常场景未定义返回行为，则判定为违规。\n\n重要：本规则独立判断。当 API 实现中存在返回空值但声明未定义该场景时，本规则检查「返回值定义是否完备」。与此同时，若空值未在类型声明中显式标注，还应独立触发规则 5.1.2.11。两者角度不同（本规则关注返回场景覆盖度，5.1.2.11 关注静态类型声明显式性），不应互相替代。"
+    },
+    {
+      "id": "4.3.6",
+      "description": "801错误码返回的错误信息要清晰表述设备不支持原因",
+      "example": {
+        "good case": "声明侧：\n@throws { BusinessError } 801 - Capability not supported.\n// 配合实现中明确说明缺失的硬件能力\n\n实现侧（正例）：\nnapi_throw(env, GenerateBusinessError(env, 801, \"The device does not support NFC feature due to missing NFC hardware\"));",
+        "bad case": "反例1（仅写 Capability not supported）：\nnapi_throw(env, GenerateBusinessError(env, 801, \"Capability not supported\"));\n// 未说明缺失的具体硬件或能力\n\n反例2（映射条目消息笼统）：\n{ NativeRdb::E_NOT_SUPPORT, 801, \"Capability not support.\" }\n// 消息过于笼统，未指出缺失的特性\n\n反例3（映射条目消息模糊）：\n{ NETMANAGER_ERR_CAPABILITY_NOT_SUPPORTED, \"Capability not supported\" }\n// 映射表中的 801 错误消息未说明缺失的硬件或系统能力"
+      },
+      "instructions": "检查 801 错误码在声明侧和实现侧的描述是否清晰说明设备不支持的具体原因。\n\n声明侧检查：扫描 JSDoc 中的 @throws 描述，确认 801 的错误消息是否说明了缺失的硬件、特性或系统能力。若仅写 \"Capability not supported\" 等通用描述，应结合 syscap 信息和 API 所属 Kit 判断是否需要更具体的描述。\n\n实现侧检查：扫描以下位置的 801 错误码消息：\n1. NAPI 层：napi_throw / GenerateBusinessError / ThrowCapabilityError 中的错误消息字符串\n2. 错误码映射表：如 { ErrorCode, 801, \"message\" } 格式的映射条目\n3. C++ 业务层：dlopen/dlsym 失败后返回 NOT_SUPPORT 的场景\n\n违规判定：若 801 错误码的消息为以下模糊描述之一，且未补充具体原因，则判定为违规：\n- \"Capability not supported\" / \"Capability not support.\" / \"Not support.\"\n- \"xxx not support!\"（未说明缺失的具体能力）\n- 仅 \"not supported\" 而未指出缺失的硬件/特性/系统能力\n\n合规格式：\"当前设备由于没有XXX特性（或XXX硬件或XXX原因）导致能力不支持，返回了801错误码\""
+    },
+    {
+      "id": "5.1.2.11",
+      "description": "显式声明所有 null/undefined",
+      "example": {
+        "good case": "正例1（返回值显式声明 | null）：\nfunction getInputMethodAbility(): InputMethodAbility | null;\n\n正例2（返回值显式声明 | undefined）：\nfunction getStateByIndex(index: number): RouterState | undefined;\n\n正例3（属性显式声明可选+可空）：\nreadonly bundleName?: string | null;\ndataGroupId?: string | null | undefined;\n\n正例4（参数可选声明）：\nfunction startBLEScan(filters: Array<ScanFilter> | null, options?: ScanOptions): void;",
+        "bad case": "反例1（实现返回 nullptr 但声明类型未包含 null）：\ndeclaration: function getDisplayById(id: number): Display  // 声明类型为 Display\nimplementation:\n  if (g_JsDisplayMap.find(displayId) == g_JsDisplayMap.end()) {\n    return nullptr;  // 实际返回 null，但声明未写 | null\n  }\n\n反例2（实现使用 napi_get_undefined 作为返回值但声明未标注 undefined）：\ndeclaration: function createCutoutInfo(info: CutoutInfo): object\nimplementation:\n  if (objValue == nullptr) {\n    return NapiGetUndefined(env);  // 返回 undefined，声明未写 | undefined\n  }\n\n注意：以上反例同时违反规则 3.2.6（返回值定义不完备），应分别独立报告。"
+      },
+      "instructions": "检查 ArkTS 声明文件（.d.ts/.d.ets）中所有可能出现的 null 和 undefined 是否在类型签名中显式声明。包括入参、返回值和属性。\n\n声明侧检查：解析类型签名中的以下模式：\n1. 可选参数：`param?: Type` 等价于 `param: Type | undefined`\n2. 联合类型：`Type | null`、`Type | undefined`、`Type | null | undefined`\n3. 回调参数中 BusinessError 的 null 约定（AsyncCallback 中 err 为 null 表示成功）\n\n实现侧对照：扫描 NAPI/C++ 实现中的以下空值产生路径：\n1. `return nullptr` — NAPI 层返回 JS 的 null\n2. `napi_get_undefined(env, &result)` 后 return — 返回 JS 的 undefined\n3. `napi_get_null(env, &value)` — 产生 null 值\n4. `SetMemberUndefined` — 将对象属性设为 undefined\n5. `napi_resolve_deferred(env, deferred, undefined)` — Promise resolve 为 undefined\n\n违规判定：若实现中存在以上空值产生路径，且对应的 API 声明类型签名中未包含 `| null` 或 `| undefined`，则判定为违规。\n\n重要：本规则独立判断。当 API 实现返回了 null/undefined 但声明类型未包含该联合类型时，无论规则 3.2.6 是否已触发，本规则都应独立报告。本规则关注静态类型声明的显式性（类型签名中是否包含 | null / | undefined），3.2.6 关注返回场景定义的完备性，两者角度不同，不应互相替代。"
+    },
+    {
+      "id": "5.1.7.1",
+      "description": "API 声明应与 API 实现在是否支持空值上应保持一致",
+      "example": {
+        "good case": "正例1（声明不支持空值，实现正确抛异常）：\ndeclaration: function setAddress(addr: string): void\nimplementation: if (addr == nullptr) { napi_throw(env, CreateJsError(env, 401)); return; }\n\n正例2（声明支持空值，实现正确返回 null）：\ndeclaration: function getInputMethodAbility(): InputMethodAbility | null\nimplementation: return nullptr; // 与声明一致",
+        "bad case": "反例1（声明不支持空值，实现静默忽略）：\ndeclaration: function setAddress(addr: string): void  // 未声明 null\nimplementation: if (addr == nullptr) { return; }  // 静默忽略空值，应抛 401\n\n反例2（声明不支持空值，实现返回 nullptr）：\ndeclaration: function getDisplayById(id: number): Display  // 未声明 | null\nimplementation:\n  if (g_JsDisplayMap.find(displayId) == g_JsDisplayMap.end()) {\n    return nullptr;  // 返回了 null 但声明未支持\n  }\n\n反例3（声明不支持空值，实现中属性被设为 undefined）：\nimplementation: SetMemberUndefined(env, result, \"propertyName\");  // 声明中该属性类型未包含 | undefined"
+      },
+      "instructions": "检查声明与实现对空值支持是否一致。\n\n声明不支持空值时的实现要求：\n1. 入参：传入空值时应同步抛出 401 运行时异常（通过 napi_throw 等），无须在 JSDoc 中声明\n2. 返回值：在任何场景下不应返回 null/undefined（不应出现 return nullptr、napi_get_undefined 后 return 的路径）\n3. 属性读取：不应返回 null/undefined（不应使用 SetMemberUndefined 等将属性设为 undefined）\n4. 属性写入：写入空值应抛出运行时异常\n\n重点扫描的 NAPI/C++ 实现模式：\n1. 参数解析失败路径：`napi_get_value_string_utf8` 等解析失败后是否静默 return\n2. 对象查找失败路径：如 `map.find() == map.end()` 后是否 return nullptr 而非 throw\n3. 属性 getter/setter：是否对空值做了静默处理\n4. 回调参数中的 null 约定：AsyncCallback 的 err 参数用 null 表示成功是合规的\n\n在 ArkTS 实现的 API 中，ArkTS 本身会校验一致性。本规则主要针对 NAPI/C++ 实现的 API。若声明未支持空值但实现接受空值、返回空值或静默忽略，则判定为违规。"
+    },
+    {
+      "id": "5.1.7.5",
+      "description": "遇到异常逻辑无法返回正常结果时，不返回空结果，通过异常分支返回异常结果",
+      "example": {
+        "good case": "正例（实现中异常路径正确抛出 BusinessError）：\n} else {\n    napi_throw(env, GenerateBusinessError(env, HCF_INVALID_PARAMS, \"AsyKeySpecItem not support!\"));\n    return nullptr;  // throw 后的 return nullptr 是合规的（已抛出异常）\n}",
+        "bad case": "反例1（catch 后静默返回空结果，开发者可接收）：\n// 实现中 catch 捕获异常后返回 false/空值\ncatch (...) {\n    LOG_ERROR(\"throw error\");\n    return false;  // 开发者收到 false，无法区分正常和异常\n}\n\n反例2（catch 后静默吞掉异常，无任何返回）：\ncatch (const exception &e) {\n    // 异常后无额外处理 — 控制流继续执行可能返回无效结果\n}\n\n反例3（服务失败路径返回空对象）：\nif (!serviceAvailable) {\n    return NapiGetUndefined(env);  // 应抛 BusinessError 而非返回 undefined\n}"
+      },
+      "instructions": "检查语义上应返回有效结果的 API 在异常逻辑中是否错误返回了空结果（null/undefined/false/空对象/空字符串），以及声明设计是否合理。\n\n一、声明设计检查：\n对于语义上应始终返回有效值的属性和方法（如 Person.getId() 语义上不应为空），声明中不应包含 | null 或 | undefined。当因异常逻辑无法返回正常结果时，应通过抛出异常（BusinessError）而非将返回值声明为可空来处理。\n\n违规声明模式：\n- getId(): string | null  // 语义上 ID 不应为空，应通过异常处理错误\n- getUIContext(): UIContext | null  // 语义上 UIContext 不应为空\n\n二、实现行为检查：\n需要识别的异常路径：\n1. try/catch 块中的 catch 分支\n2. 服务调用失败（如 IPC 通信失败、服务未启动）\n3. 数据库/文件系统操作失败\n4. 系统调用失败（如 dlopen/dlsym 失败）\n5. 资源分配/查找失败（如 map.find() 未找到、对象创建失败）\n\n关键判定条件 — 空值可达性验证：\n必须确认该空值能够被开发者实际接收到。判断方法：追踪异常路径中的 return 语句，确认其返回值是否直接作为 API 的最终返回值传递给调用方。\n\n具体排除场景（以下情况空值不可达，不违规）：\n1. napi_throw 之后的 return nullptr — 已抛出异常，nullptr 是 NAPI 框架要求的技术性返回，开发者收到的是 BusinessError 而非 null，不违规\n2. Promise reject 路径中的空值（napi_reject_deferred）— 开发者通过 catch 获取 BusinessError，不违规\n3. 内部 try-catch 拦截后转换为异常的空值 — 不违规\n4. napi_throw_error 之后的 return — 同第 1 条，已抛出异常\n\n违规场景（空值可达，判定为违规）：\n1. 异常路径 return nullptr / NapiGetUndefined(env)，且之前无 napi_throw 调用 → 开发者直接收到 null/undefined\n2. 异常路径执行 napi_resolve_deferred(env, deferred, undefined/null) → 开发者的 Promise.then 收到空值而非 reject\n3. 异常路径通过 callback 传递空值（如 callbackValue[1] = nullptr）→ 开发者的 AsyncCallback 收到空值作为 data\n4. catch 块中 return false / return \"\" / return 空对象 → 同步 API 的调用者收到伪正常结果\n\n若声明在语义非空的返回值上包含 | null / | undefined，或异常路径返回空值且该空值可被开发者实际接收，导致开发者无法区分「正常但为空」和「异常导致为空」，则判定为违规。"
+    },
+    {
+      "id": "5.1.7.8",
+      "description": "返回值是数组的方法，若返回空需要返回空数组",
+      "example": {
+        "good case": "正例（声明不包含空值，实现返回空数组）：\ndeclaration: function getSupportedPowerMode(): Promise<Array<PowerMode>>\nimplementation: return []; // 正确返回空数组",
+        "bad case": "违规场景一（声明层面 — 数组类型不应联合 null/undefined）：\ndeclaration: function findComponents(on: On): Promise<Array<Component> | null>\n// 数组返回值不应声明 | null，空场景应返回 []\n\n违规场景二（实现层面 — 应返回空数组但返回 null）：\ndeclaration: function getDataList(): Array<Data>\nimplementation: if (noData) { return nullptr; }  // 应返回 [] 而非 null"
+      },
+      "instructions": "检查返回值为数组类型的函数在正常空场景下是否返回空数组，而不是 null 或 undefined。\n\n违规场景一（声明层面）：\nAPI 声明中返回值类型为数组类型（如 Array<T>、T[]、List<T>、vector 等集合类型），但声明中包含 | null 或 | undefined 联合类型。数组类型返回值在声明中无需使用空值联合类型——空场景应通过返回空数组表示。若声明中出现以下模式则违规：\n- `Array<T> | null`\n- `Promise<Array<T> | null>`\n- `Promise<Array<T> | undefined>`\n\n违规场景二（实现层面）：\nAPI 实现中，在应返回空数组的路径上（如查询结果为空、列表为空等正常业务场景），实际返回了 null 或 undefined（如 return nullptr、napi_get_undefined 后 return）而非空数组（如 []、空 vector 等）。需要扫描实现中的条件分支、异常处理、默认返回等路径。\n\n两个违规场景独立判断，满足任一即应报告。"
+    },
+    {
+      "id": "5.4.1.4",
+      "description": "设备不支持优先使用 801 通用错误码",
+      "example": {
+        "good case": "正例（执行类接口声明 801，依赖硬件能力）：\n@permission ohos.permission.MANAGE_WIFI_HOTSPOT_EXT\n@throws {BusinessError} 201 - Permission denied.\n@throws {BusinessError} 801 - Capability not supported.\n@throws {BusinessError} 2701000 - Operation failed.\nfunction enableHotspot(): void;",
+        "bad case": "反例1（查询类接口不应声明 801）：\n@throws {BusinessError} 801 - Capability not supported.\nfunction getState(): BluetoothState;  // 查询类接口不应声明 801\n\n反例2（实现中使用自定义错误码而非 801）：\nimplementation: return GSERROR_NOT_SUPPORT;  // 应映射为 801 而非内部错误码\n\n反例3（缺少 801 声明的硬件相关执行接口）：\n@permission ohos.permission.ACCESS_BLUETOOTH\nfunction enableBluetooth(): void;\n// 蓝牙功能在无蓝牙硬件的设备上不支持，应声明 801"
+      },
+      "instructions": "检查 801 是否仅用于设备能力或硬件不支持的执行类接口。\n\n第一步 — 识别硬件相关 API：判断 API 是否依赖以下底层能力：\n- 通信硬件：蓝牙、WiFi、NFC、蜂窝网络\n- 传感器/定位：GPS、加速度计、陀螺仪\n- 媒体硬件：相机、麦克风、扬声器\n- 安全硬件：TEE、安全芯片、HUKS\n\n第二步 — 区分接口类型：\n- 执行类接口（启用/关闭/配置硬件功能）：在设备不支持时应声明并返回 801\n- 查询类接口（获取状态/信息）：不应声明 801，因为查询本身不依赖硬件存在\n- 监听类接口（on/off 注册回调）：一般不应声明 801\n- UI 相关接口：不应声明 801\n\n第三步 — 检查一致性：\n1. 声明中有 801 但实现中未返回 801 → 声明与实现不一致\n2. 实现中返回了 NOT_SUPPORT 类错误码但未映射为 801 → 应优先使用 801\n3. 结合 syscap 覆盖范围判断是否需要 801\n\n常见实现模式：\n- dlopen/dlsym 失败后返回 801\n- 特性检查函数返回 false 后抛出 801\n- GenerateBusinessError(env, 801, \"...\") 直接生成 801 错误"
+    },
+    {
+      "id": "5.1.11.11.1",
+      "description": "禁止创建空方法接口",
+      "example": {
+        "good case": "正例（方法在所有场景均可正常工作）：\nfunction getConnectionProperties(netHandle: NetHandle): Promise<ConnectionProperties>;\n// 所有路径均有实际业务逻辑，异常通过 BusinessError 返回",
+        "bad case": "反例1（方法体仅返回 NOT_SUPPORT，无实际业务逻辑）：\nGSError Producer::AttachBuffer(sptr<SurfaceBuffer>& buffer) {\n    return GSERROR_NOT_SUPPORT;  // 整个方法体只有这一行\n}\n\n反例2（预埋方法，所有场景都返回不支持）：\nif (!IsFeatureSupported(context->paramSet)) {\n    ThrowFeatureNotSupport(env);\n    return nullptr;  // 所有场景都返回不支持\n}\n\n反例3（事件回调方法，仅系统应用可回调）：\n// 外部开发者可以订阅但不会收到回调\nfunction on(type: 'deviceStateChange', callback: Callback<void>): void;\n// 实现中只有系统应用 UID 才会触发回调"
+      },
+      "instructions": "禁止创建空方法接口。\n\n空方法 API 定义：\n方法 API 在所有场景都不能正常工作，或其部分参数在所有的场景下都无效。\n\n检测模式：\n1. 方法体仅有一行 return 错误码（如 return GSERROR_NOT_SUPPORT;），无任何业务逻辑\n2. NAPI 入口函数中，首行即判断是否支持并直接 throw/return（如特性检查函数返回 false 后直接 throw/return 不支持）\n3. dlopen/dlsym 失败后直接返回错误码的 C API，且该 so 库在目标设备上不存在\n4. 事件回调方法（on/off 注册），实现中只有特定 UID/权限的应用才会触发回调，外部开发者订阅后永远收不到\n\n不属于空接口的场景：\n- 多设备场景在某个设备上不支持（设备差异，非空接口）\n- 方法在大多数场景可工作，仅个别参数组合无效\n\n测试应对该方法能工作和不能工作的场景都需要验收，不能只测试成功/只测试失败的场景。"
+    },
+    {
+      "id": "5.1.11.11.2",
+      "description": "禁止创建空枚举/常量接口",
+      "example": {
+        "good case": "正例（枚举值在代码中被实际使用）：\nenum PowerMode { MODE_LOW, MODE_NORMAL };\n// 实现中有：if (mode == PowerMode::MODE_LOW) { ... }",
+        "bad case": "反例1（枚举值已定义但从未被引用）：\nenum class UserStatus { ACTIVE, SUSPENDED };\n// SUSPENDED 在整个代码库中从未被任何代码引用\n\n反例2（错误码枚举值已定义但实现中永远不会返回）：\nenum BusinessErrorCode {\n    ERR_OK = 0,\n    ERR_NOT_FOUND = 14000001,\n    ERR_TIMEOUT = 14000002,  // 声明了但实现中任何场景都不会返回此错误码\n}"
+      },
+      "instructions": "检查枚举值或常量在全仓范围内是否存在定义后从未被引用的情况。\n\n检测步骤：\n1. 扫描 C/C++、TypeScript、ArkTS 中的枚举与常量定义\n2. 对每个枚举值/常量进行全仓引用分析，支持以下访问方式：\n   - C++ 命名空间限定：`Namespace::ENUM_VALUE`\n   - 嵌套类枚举：`Class::ENUM_VALUE`\n   - C++20 using enum\n   - TypeScript/ArkTS 点号访问：`EnumName.VALUE`\n3. 排除声明文件（.d.ts/.d.ets）中的引用（因为声明是 API 定义本身）\n\n违规判定：\n- 枚举值/常量已定义，但全仓无任何实现代码引用\n- 枚举值作为错误码已定义，但实现中任何场景都不会返回该错误码\n\n注意：仅在 API 声明中出现但实现中不使用的枚举值也属于违规。"
+    },
+    {
+      "id": "5.4.1.5",
+      "description": "API 不支持模拟器使用 804 通用错误码",
+      "example": {
+        "good case": "正例（实现中 804 错误消息清晰说明原因）：\n// 模拟器环境检测到硬件依赖\nif (IsEmulator()) {\n    napi_throw(env, GenerateBusinessError(env, 804,\n        \"当前能力依赖真机 NFC 硬件，模拟器环境不支持模拟 NFC 通信功能\"));\n}",
+        "bad case": "反例（804 错误消息过于模糊）：\nnapi_throw(env, GenerateBusinessError(env, 804, \"not supported\"));\n// 未说明是模拟器环境、缺失什么硬件/能力\n\n注意：804 错误码仅在调试阶段出现，实际商用运行阶段不会返回。因此在声明（JSDoc）中一般不体现 804，仅在资料公共错误码章节统一说明。"
+      },
+      "instructions": "检查 API 在模拟器不支持场景下是否使用 804 通用错误码，并清晰说明具体原因。\n\n检查范围：\n1. 实现中的模拟器检测逻辑（如 IsEmulator()、设备类型判断）\n2. 804 错误码的使用和错误消息内容\n3. 资料中公共错误码章节的 804 说明\n\n违规判定：\n- API 在模拟器上不支持，但使用了非 804 的错误码 → 应使用 804\n- 804 错误消息为模糊描述（如 \"not supported\"、\"not support\"）→ 应说明具体缺失的硬件/驱动/虚拟化能力\n- 错误消息未明确指出模拟器环境 → 应提及模拟器\n\n注意：\n1. 804 错误码仅在调试阶段出现，实际商用运行阶段不会返回\n2. 不需要在每个业务 API 的 JSDoc 和接口注释中声明 804\n3. 仅在资料公共错误码章节统一说明即可\n4. 可在实现的日志错误信息中记录模拟器不支持的详细原因"
+    },
+    {
+      "id": "5.4.5",
+      "description": "不同语言相同功能的接口错误码定义应保持一致",
+      "example": {
+        "good case": "正例（跨语言错误码一致）：\n// 权限不足场景\nC API: return ERR_PERMISSION_DENIED;  // 201\nC++ API: return ERR_PERMISSION_DENIED;  // 201\nTS API: throw new BusinessError(201, \"Permission denied\");\n// 三种语言对同一场景返回相同的 201 错误码",
+        "bad case": "反例1（同场景不同错误码）：\n// TS 层设备不支持 → 801\nimplementation: napi_throw(env, GenerateBusinessError(env, 801, \"...\"));\n// Native 层同一场景 → 内部错误码\nimplementation: return GSERROR_NOT_SUPPORT;  // 应映射为 801\n\n反例2（透传底层 errno 而未映射）：\nimplementation: napi_throw_error(env, std::to_string(errno).c_str(), msg);\n// 直接将底层 errno 透传给 JS 层，而非映射为统一错误码\n// 这会导致错误码类型为字符串而非数字"
+      },
+      "instructions": "检查不同语言中相同功能接口的错误码定义、数值和语义是否一致。\n\n检查范围：\n1. 对照 .h（C/C++ 声明）、.d.ts/.d.ets（TS/ArkTS 声明）、.cpp/.c（实现）等文件\n2. 确认同一功能接口在 C、C++、TS、JS 等实现中，对相同错误场景是否返回相同的错误码\n3. 检查跨 NAPI 或 ANI 桥接层后的最终返回是否一致\n\n违规场景：\n1. 同码不同义：同一错误码在不同语言中表示不同含义\n2. 同义不同码：同一错误场景在不同语言中返回不同错误码（如 TS 返回 801 但 C++ 返回内部 NOT_SUPPORT 码）\n3. 某语言遗漏定义：TS 层声明了某错误码但 C++ 实现中未返回该码（或反之）\n4. 直接透传底层 errno：使用 std::to_string(errno) 或直接返回底层负数错误码，而未映射为 HarmonyOS 统一错误码\n5. 类型不一致：TS 侧期望数字类型错误码，但 Native 侧传递了字符串类型（如 napi_throw_error 使用 std::to_string）\n\n常见桥接层检查点：\n- NAPI 桥接：C++ 错误码 → NAPI 映射函数 → JS BusinessError.code\n- 错误码映射表：如 { NativeErrorCode, JSCode, \"message\" } 格式\n- ANI 桥接：ArkTS → C++ 的错误码传递"
+    }
+  ]
+}

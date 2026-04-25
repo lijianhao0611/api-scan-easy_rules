@@ -1,8 +1,20 @@
 kit,component
+ArkUI,arkui_ace_engine
+ArkUI,window_window_manager
+ArkTS,arkcompiler_ets_runtime
+ArkGraphics 2D,graphic_graphic_2d
+Basic Services Kit,distributeddatamgr_pasteboard
+ArkWeb,web_webview
+Connectivity Kit,communication_bluetooth
+Connectivity Kit,communication_nfc
+Connectivity Kit,communication_wifi
 Ability Kit,ability_ability_runtime
 Ability Kit,ability_dmsfwk
 Ability Kit,bundlemanager_bundle_framework
 Ability Kit,security_access_token
+Image Kit,multimedia_image_framework
+Audio Kit,multimedia_audio_framework
+Contacts Kit,applications_contacts_data
 Accessibility Kit,accessibility
 Ads Kit,advertising_ads_framework
 Ads Kit,advertising_oaid
@@ -11,26 +23,15 @@ ArkData,distributeddatamgr_kv_store
 ArkData,distributeddatamgr_preferences
 ArkData,distributeddatamgr_relational_store
 ArkData,distributeddatamgr_udmf
-ArkGraphics 2D,graphic_graphic_2d
 ArkGraphics 3D,graphic_graphic_3d
-ArkTS,arkcompiler_ets_runtime
-ArkUI,arkui_ace_engine
-ArkUI,window_window_manager
-ArkWeb,web_webview
 Asset Store Kit,security_asset
-Audio Kit,multimedia_audio_framework
 AVCodec Kit,multimedia_av_codec
 AVSession Kit,multimedia_av_session
 Background Tasks Kit,resourceschedule_background_task_mgr
 Background Tasks Kit,resourceschedule_resource_schedule_service
 Background Tasks Kit,resourceschedule_work_scheduler
-Basic Services Kit,distributeddatamgr_pasteboard
 Calendar Kit,applications_calendar_data
 Camera Kit,multimedia_camera_framework
-Connectivity Kit,communication_bluetooth
-Connectivity Kit,communication_nfc
-Connectivity Kit,communication_wifi
-Contacts Kit,applications_contacts_data
 Core File Kit,filemanagement_app_file_service
 Core File Kit,filemanagement_dfs_service
 Core File Kit,filemanagement_file_api
@@ -46,7 +47,7 @@ Drm Kit,multimedia_drm_framework
 Form Kit,ability_form_fwk
 Function Flow Runtime Kit,resourceschedule_ffrt
 Game Controller Kit,game_game_controller_framework
-Image Kit,multimedia_image_framework
+
 IME kit,inputmethod_imf
 IME kit,miscservices_inputmethod
 Input Kit,multimodalinput_input
