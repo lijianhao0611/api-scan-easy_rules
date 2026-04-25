@@ -9,12 +9,17 @@ import subprocess
 import sys
 from pathlib import Path
 
+import sys; sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from scripts_logger import get_logger
+
+logger = get_logger("batch_scan_all")
+
 # ============================================================
 # 固定配置
 # ============================================================
 
 # kit_compont.csv 路径
-CSV_PATH: Path = Path(__file__).resolve().parent  / "kit_compont.csv"
+CSV_PATH: Path = Path(__file__).resolve().parent.parent / "kit_compont.csv"
 
 # scan_kit.py 路径（同目录下）
 SCAN_KIT_SCRIPT: Path = Path(__file__).resolve().parent / "scan_kit.py"
@@ -90,7 +95,7 @@ def check_paths():
 
     if errors:
         for e in errors:
-            print(f"[错误] {e}")
+            logger.error(e)
         sys.exit(1)
 
 
@@ -103,29 +108,29 @@ def main():
     # 按 -kits 参数过滤
     if args.kits:
         kits = [k for k in all_kits if any(filt.lower() in k.lower() for filt in args.kits)]
-        print(f"过滤后 {len(kits)}/{len(all_kits)} 个 Kit (过滤词: {args.kits})\n")
+        logger.info("过滤后 %d/%d 个 Kit (过滤词: %s)", len(kits), len(all_kits), args.kits)
     else:
         kits = all_kits
-        print(f"共发现 {len(kits)} 个 Kit\n")
+        logger.info("共发现 %d 个 Kit", len(kits))
 
     for i, kit in enumerate(kits, 1):
         cmd = build_command(kit, args.skip_extract)
         cmd_str = " ".join(cmd)
 
         if args.dry_run:
-            print(f"[{i}/{len(kits)}] {cmd_str}")
+            logger.info("[%d/%d] %s", i, len(kits), cmd_str)
         else:
-            print(f"\n{'=' * 60}")
-            print(f"[{i}/{len(kits)}] 正在处理: {kit}")
-            print(f"命令: {cmd_str}")
-            print("=" * 60)
+            logger.info("=" * 60)
+            logger.info("[%d/%d] 正在处理: %s", i, len(kits), kit)
+            logger.info("命令: %s", cmd_str)
+            logger.info("=" * 60)
 
             result = subprocess.run(cmd)
             if result.returncode != 0:
-                print(f"[警告] Kit '{kit}' 处理失败 (退出码: {result.returncode})，继续下一个")
+                logger.warning("Kit '%s' 处理失败 (退出码: %d)，继续下一个", kit, result.returncode)
 
     if args.dry_run:
-        print(f"\n--dry-run 模式，共 {len(kits)} 条命令，未实际执行")
+        logger.info("--dry-run 模式，共 %d 条命令，未实际执行", len(kits))
 
 
 if __name__ == "__main__":

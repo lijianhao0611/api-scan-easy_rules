@@ -2,8 +2,8 @@
 scan_kit.py - Kit 级 API 审计流水线入口
 
 完整流水线：
-  Step 1: 调用 Claude CLI 使用 kit-api-extract 技能提取 Kit API 数据
-  Step 2: 按批次调用 Claude CLI 使用 api-level-scan 技能进行审计
+  Step 1: 调用 CLI 使用 kit-api-extract 技能提取 Kit API 数据
+  Step 2: 按批次调用 CLI 使用 api-level-scan 技能进行审计
   Step 3: 合并审计结果
 
 用法:
@@ -17,6 +17,11 @@ from pathlib import Path
 
 import batch_pipeline
 import claude_runner
+
+import sys; sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from scripts_logger import get_logger
+
+logger = get_logger("scan_kit")
 
 
 def normalize_kit_name(raw_name: str) -> str:
@@ -93,9 +98,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def main():
-    print("=" * 60)
-    print("Kit 级 API 审计流水线")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("Kit 级 API 审计流水线")
+    logger.info("=" * 60)
 
     args = parse_args()
 
@@ -105,23 +110,23 @@ def main():
     js_decl_path = Path(args.js_decl_path)
     repo_base = Path(args.repo_base).resolve()
 
-    print(f"\nKit: {kit_name}")
-    print(f"输出目录: {output_dir}")
-    print(f"SDK 路径: {js_decl_path}")
-    print(f"仓库基础: {repo_base}")
-    print(f"Batch 大小: {args.batch_size}")
+    logger.info("Kit: %s", kit_name)
+    logger.info("输出目录: %s", output_dir)
+    logger.info("SDK 路径: %s", js_decl_path)
+    logger.info("仓库基础: %s", repo_base)
+    logger.info("Batch 大小: %d", args.batch_size)
 
     # 验证 Kit 声明文件存在
     kit_file = resolve_kit_file(kit_name, js_decl_path)
-    print(f"Kit 声明文件: {kit_file}")
+    logger.info("Kit 声明文件: %s", kit_file)
 
     # ========================================
     # Step 1: 调用 kit-api-extract 提取 API
     # ========================================
     if not args.skip_extract:
-        print("\n" + "=" * 60)
-        print("Step 1: 调用 kit-api-extract 提取 API 数据")
-        print("=" * 60)
+        logger.info("=" * 60)
+        logger.info("Step 1: 调用 kit-api-extract 提取 API 数据")
+        logger.info("=" * 60)
 
         output_dir.mkdir(parents=True, exist_ok=True)
         prompt = build_extract_prompt(
@@ -130,32 +135,32 @@ def main():
 
         success, _ = claude_runner.run_claude_command(prompt)
         if not success:
-            print("[错误] kit-api-extract 执行失败")
+            logger.error("kit-api-extract 执行失败")
             sys.exit(1)
 
         # 验证输出文件
         api_path = output_dir / "api.jsonl"
         impl_api_path = output_dir / "impl_api.jsonl"
         if not api_path.exists() or not impl_api_path.exists():
-            print(f"[错误] 提取后未找到 api.jsonl 或 impl_api.jsonl")
-            print(f"  api.jsonl: {api_path} ({'存在' if api_path.exists() else '不存在'})")
-            print(f"  impl_api.jsonl: {impl_api_path} ({'存在' if impl_api_path.exists() else '不存在'})")
+            logger.error("提取后未找到 api.jsonl 或 impl_api.jsonl")
+            logger.error("  api.jsonl: %s (%s)", api_path, "存在" if api_path.exists() else "不存在")
+            logger.error("  impl_api.jsonl: %s (%s)", impl_api_path, "存在" if impl_api_path.exists() else "不存在")
             sys.exit(1)
     else:
-        print("\n[跳过] kit-api-extract 步骤 (-skip_extract)")
+        logger.info("跳过 kit-api-extract 步骤 (-skip_extract)")
 
     # ========================================
     # Step 2: 批量审计
     # ========================================
-    print("\n" + "=" * 60)
-    print("Step 2: 批量 API 审计")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("Step 2: 批量 API 审计")
+    logger.info("=" * 60)
 
     api_path = output_dir / "api.jsonl"
     impl_api_path = output_dir / "impl_api.jsonl"
 
     if not api_path.exists() or not impl_api_path.exists():
-        print(f"[错误] 缺少 api.jsonl 或 impl_api.jsonl")
+        logger.error("缺少 api.jsonl 或 impl_api.jsonl")
         sys.exit(1)
 
     # 加载数据并分批
@@ -166,7 +171,7 @@ def main():
     )
 
     if not batch_paths:
-        print("[警告] 没有数据需要处理")
+        logger.warning("没有数据需要处理")
         sys.exit(0)
 
     # 执行批量审计
@@ -184,9 +189,9 @@ def main():
             xlsx_path = merged_path.with_suffix(".xlsx")
             batch_pipeline.jsonl_to_xlsx(merged_path, xlsx_path)
 
-    print("\n" + "=" * 60)
-    print("流水线执行完毕")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("流水线执行完毕")
+    logger.info("=" * 60)
 
 
 if __name__ == "__main__":

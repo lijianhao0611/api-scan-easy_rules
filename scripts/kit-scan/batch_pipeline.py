@@ -2,12 +2,17 @@
 batch_pipeline.py - 批量 API 数据处理模块
 
 负责 JSONL 文件读写、数据分批、prompt 构建和结果合并。
-不调用 Claude CLI，仅处理数据流。
+不调用 CLI，仅处理数据流。
 """
 
 import json
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
+
+import sys; sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from scripts_logger import get_logger
+
+logger = get_logger("batch_pipeline")
 
 # 每个 batch 审计完成后，结果文件名
 RESULT_FILENAME: str = "api_scan_findings.jsonl"
@@ -36,10 +41,9 @@ def load_and_split_impl_api(
             else:
                 non_empty_list.append(record)
 
-    print(
-        f"[batch_pipeline] 读取 impl_api.jsonl 完成: "
-        f"impl_api_name 为空 {len(empty_list)} 条, "
-        f"不为空 {len(non_empty_list)} 条"
+    logger.info(
+        "读取 impl_api.jsonl 完成: impl_api_name 为空 %d 条, 不为空 %d 条",
+        len(empty_list), len(non_empty_list),
     )
     return empty_list, non_empty_list
 
@@ -75,9 +79,9 @@ def load_matching_api_data(
             if key in match_keys:
                 matched.append(record)
 
-    print(
-        f"[batch_pipeline] 从 api.jsonl 匹配到 {len(matched)} 条数据 "
-        f"(待匹配 {len(empty_impl_list)} 条)"
+    logger.info(
+        "从 api.jsonl 匹配到 %d 条数据 (待匹配 %d 条)",
+        len(matched), len(empty_impl_list),
     )
     return matched
 
@@ -109,15 +113,9 @@ def prepare_batches(
             for record in batch:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
         batch_paths.append(batch_path)
-        print(
-            f"[batch_pipeline] 写入 batch {i // batch_size}: "
-            f"{len(batch)} 条 API -> {batch_path}"
-        )
+        logger.info("写入 batch %d: %d 条 API -> %s", i // batch_size, len(batch), batch_path)
 
-    print(
-        f"[batch_pipeline] 共 {len(all_data)} 条数据, "
-        f"分为 {len(batch_paths)} 个 batch (batch_size={batch_size})"
-    )
+    logger.info("共 %d 条数据, 分为 %d 个 batch (batch_size=%d)", len(all_data), len(batch_paths), batch_size)
     return batch_paths
 
 
@@ -128,18 +126,17 @@ def build_scan_prompt(
     为单个 batch 构建 /api-level-scan 的 prompt。
     使用文件路径引用而非嵌入 JSONL 数据。
     """
-    
+
     prompt = (
         f"/api-level-scan\n"
         f"api_input=\n{batch_input_path}\n"
         f"repo_base={repo_base}\n"
         f"out_path={batch_out_dir}\n"
-        
+
     )
     if batch_out_dir.parent/'api_extraction_report.md' in batch_out_dir.parent.iterdir():
         prompt += "api_extraction_report_path={}\n".format(batch_out_dir.parent/'api_extraction_report.md')
-        print(f"  [提示] 已存在 api_extraction_report.md，已将相关知识路径注入")
-    # print(f"{prompt}")
+        logger.info("已存在 api_extraction_report.md，已将相关知识路径注入")
     return prompt
 
 
@@ -166,7 +163,7 @@ def merge_batch_results(output_dir: Path, output_path: Path) -> int:
     """
     batch_dirs = collect_batch_result_dirs(output_dir)
     if not batch_dirs:
-        print("[batch_pipeline] 未找到任何 batch 结果目录")
+        logger.warning("未找到任何 batch 结果目录")
         return 0
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -176,7 +173,7 @@ def merge_batch_results(output_dir: Path, output_path: Path) -> int:
         for dir_path in batch_dirs:
             result_file = dir_path / "api_scan" / RESULT_FILENAME
             if not result_file.exists():
-                print(f"  [跳过] 结果文件不存在: {result_file}")
+                logger.info("跳过: 结果文件不存在: %s", result_file)
                 continue
 
             with open(result_file, "r", encoding="utf-8") as in_f:
@@ -187,7 +184,7 @@ def merge_batch_results(output_dir: Path, output_path: Path) -> int:
                     out_f.write(line + "\n")
                     total_lines += 1
 
-    print(f"[batch_pipeline] 合并完成: {total_lines} 条记录 -> {output_path}")
+    logger.info("合并完成: %d 条记录 -> %s", total_lines, output_path)
     return total_lines
 
 
@@ -207,7 +204,7 @@ def jsonl_to_xlsx(jsonl_path: Path, xlsx_path: Path) -> int:
             records.append(json.loads(line))
 
     if not records:
-        print(f"[batch_pipeline] JSONL 文件为空，跳过 XLSX 生成: {jsonl_path}")
+        logger.info("JSONL 文件为空，跳过 XLSX 生成: %s", jsonl_path)
         return 0
 
     # 收集所有 key（保持首次出现的顺序）
@@ -229,5 +226,5 @@ def jsonl_to_xlsx(jsonl_path: Path, xlsx_path: Path) -> int:
 
     xlsx_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(str(xlsx_path))
-    print(f"[batch_pipeline] XLSX 已生成: {xlsx_path} ({len(records)} 行)")
+    logger.info("XLSX 已生成: %s (%d 行)", xlsx_path, len(records))
     return len(records)

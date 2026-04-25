@@ -2,9 +2,9 @@
 scan_kit.py - Kit 级 API 审计流水线入口（Harness 模式）
 
 完整流水线：
-  Step 1: 调用 Claude CLI 使用 kit-api-extract 技能提取 Kit API 数据
+  Step 1: 调用 CLI 使用 kit-api-extract 技能提取 Kit API 数据
   Step 2: 合并数据为单个 JSONL 输入文件
-  Step 3: 调用 Claude CLI 使用 api-level-scan-test 技能进行审计
+  Step 3: 调用 CLI 使用 api-level-scan-test 技能进行审计
           （技能内部处理分组、并行 subagent 调度、结果合并和验证）
   Step 4: 将审计结果转为 XLSX
 
@@ -20,6 +20,11 @@ from pathlib import Path
 
 import data_prepare
 import claude_runner
+
+import sys; sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from scripts_logger import get_logger
+
+logger = get_logger("scan_kit")
 
 
 def normalize_kit_name(raw_name: str) -> str:
@@ -143,9 +148,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def main():
-    print("=" * 60)
-    print("Kit 级 API 审计流水线（Harness 模式）")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("Kit 级 API 审计流水线（Harness 模式）")
+    logger.info("=" * 60)
 
     args = parse_args()
 
@@ -155,58 +160,58 @@ def main():
     js_decl_path = Path(args.js_decl_path)
     repo_base = Path(args.repo_base).resolve()
 
-    print(f"\nKit: {kit_name}")
-    print(f"输出目录: {output_dir}")
-    print(f"SDK 路径: {js_decl_path}")
-    print(f"仓库基础: {repo_base}")
-    print(f"分组策略: {args.group_strategy} (group_size={args.group_size})")
-    print(f"并行度: {args.max_parallel}")
+    logger.info("Kit: %s", kit_name)
+    logger.info("输出目录: %s", output_dir)
+    logger.info("SDK 路径: %s", js_decl_path)
+    logger.info("仓库基础: %s", repo_base)
+    logger.info("分组策略: %s (group_size=%d)", args.group_strategy, args.group_size)
+    logger.info("并行度: %d", args.max_parallel)
 
     # 验证 Kit 声明文件存在
     kit_file = resolve_kit_file(kit_name, js_decl_path)
-    print(f"Kit 声明文件: {kit_file}")
+    logger.info("Kit 声明文件: %s", kit_file)
 
     # ========================================
     # Step 1: 调用 kit-api-extract 提取 API
     # ========================================
     if not args.skip_extract:
-        print("\n" + "=" * 60)
-        print("Step 1: 调用 kit-api-extract 提取 API 数据")
-        print("=" * 60)
+        logger.info("=" * 60)
+        logger.info("Step 1: 调用 kit-api-extract 提取 API 数据")
+        logger.info("=" * 60)
 
         output_dir.mkdir(parents=True, exist_ok=True)
         prompt = build_extract_prompt(
             kit_name, str(js_decl_path), str(repo_base), str(output_dir)
         )
-        print(f"\n[提示] 执行 kit-api-extract，prompt:\n{prompt}\n")
+        logger.info("执行 kit-api-extract")
         success, _ = claude_runner.run_claude_command(prompt)
         if not success:
-            print("[错误] kit-api-extract 执行失败")
+            logger.error("kit-api-extract 执行失败")
             sys.exit(1)
 
         # 验证输出文件
         api_path = output_dir / "api.jsonl"
         impl_api_path = output_dir / "impl_api.jsonl"
         if not api_path.exists() or not impl_api_path.exists():
-            print(f"[错误] 提取后未找到 api.jsonl 或 impl_api.jsonl")
-            print(f"  api.jsonl: {api_path} ({'存在' if api_path.exists() else '不存在'})")
-            print(f"  impl_api.jsonl: {impl_api_path} ({'存在' if impl_api_path.exists() else '不存在'})")
+            logger.error("提取后未找到 api.jsonl 或 impl_api.jsonl")
+            logger.error("  api.jsonl: %s (%s)", api_path, "存在" if api_path.exists() else "不存在")
+            logger.error("  impl_api.jsonl: %s (%s)", impl_api_path, "存在" if impl_api_path.exists() else "不存在")
             sys.exit(1)
     else:
-        print("\n[跳过] kit-api-extract 步骤 (-skip_extract)")
+        logger.info("跳过 kit-api-extract 步骤 (-skip_extract)")
 
     # ========================================
     # Step 2: 数据准备 — 合并为单个输入文件
     # ========================================
-    print("\n" + "=" * 60)
-    print("Step 2: 数据准备")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("Step 2: 数据准备")
+    logger.info("=" * 60)
 
     api_path = output_dir / "api.jsonl"
     impl_api_path = output_dir / "impl_api.jsonl"
 
     if not api_path.exists() or not impl_api_path.exists():
-        print(f"[错误] 缺少 api.jsonl 或 impl_api.jsonl")
+        logger.error("缺少 api.jsonl 或 impl_api.jsonl")
         sys.exit(1)
 
     # 加载并分离数据
@@ -221,15 +226,15 @@ def main():
         line_count = sum(1 for line in f if line.strip())
 
     if line_count == 0:
-        print("[警告] 合并输入为空，跳过审计步骤")
+        logger.warning("合并输入为空，跳过审计步骤")
         sys.exit(0)
 
     # ========================================
     # Step 3: 调用 api-level-scan-test 技能
     # ========================================
-    print("\n" + "=" * 60)
-    print("Step 3: 调用 api-level-scan-test 进行审计")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("Step 3: 调用 api-level-scan-test 进行审计")
+    logger.info("=" * 60)
 
     scan_prompt = build_scan_prompt(
         merged_input_path=str(merged_path.resolve()),
@@ -242,17 +247,17 @@ def main():
         api_error_code_doc_path=args.api_error_code_doc_path,
         kit_name=kit_name,
     )
-    print(f"\n[提示] 执行 api-level-scan-test，prompt:\n{scan_prompt}\n")
+    logger.info("执行 api-level-scan-test")
 
     success, _ = claude_runner.run_claude_command(scan_prompt)
     if not success:
-        print("[错误] api-level-scan-test 执行失败")
+        logger.error("api-level-scan-test 执行失败")
         sys.exit(1)
 
     # 检查技能输出
     findings_path = output_dir / "api_scan" / "api_scan_findings.jsonl"
     if not findings_path.exists():
-        print(f"[警告] 未找到审计结果文件: {findings_path}")
+        logger.warning("未找到审计结果文件: %s", findings_path)
 
     # 检查验证状态
     validation_path = output_dir / "api_scan" / "validation_status.json"
@@ -260,24 +265,24 @@ def main():
         with open(validation_path, "r", encoding="utf-8") as f:
             status = json.load(f)
         if status.get("status") != "passed":
-            print(f"[警告] 技能验证未通过: {status}")
+            logger.warning("技能验证未通过: %s", status)
 
     # ========================================
     # Step 4: 转换为 XLSX
     # ========================================
-    print("\n" + "=" * 60)
-    print("Step 4: 转换结果为 XLSX")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("Step 4: 转换结果为 XLSX")
+    logger.info("=" * 60)
 
     if findings_path.exists():
         xlsx_path = findings_path.with_suffix(".xlsx")
         data_prepare.jsonl_to_xlsx(findings_path, xlsx_path)
     else:
-        print("[跳过] 审计结果文件不存在，跳过 XLSX 转换")
+        logger.info("审计结果文件不存在，跳过 XLSX 转换")
 
-    print("\n" + "=" * 60)
-    print("流水线执行完毕")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("流水线执行完毕")
+    logger.info("=" * 60)
 
 
 if __name__ == "__main__":

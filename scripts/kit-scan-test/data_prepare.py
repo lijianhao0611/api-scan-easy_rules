@@ -2,12 +2,17 @@
 data_prepare.py - API 数据准备模块
 
 负责 JSONL 文件读写、数据合并和 XLSX 转换。
-不调用 Claude CLI，仅处理数据流。
+不调用 CLI，仅处理数据流。
 """
 
 import json
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
+
+import sys; sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from scripts_logger import get_logger
+
+logger = get_logger("data_prepare")
 
 
 def load_and_split_impl_api(
@@ -33,10 +38,9 @@ def load_and_split_impl_api(
             else:
                 non_empty_list.append(record)
 
-    print(
-        f"[data_prepare] 读取 impl_api.jsonl 完成: "
-        f"impl_api_name 为空 {len(empty_list)} 条, "
-        f"不为空 {len(non_empty_list)} 条"
+    logger.info(
+        "读取 impl_api.jsonl 完成: impl_api_name 为空 %d 条, 不为空 %d 条",
+        len(empty_list), len(non_empty_list),
     )
     return empty_list, non_empty_list
 
@@ -72,9 +76,9 @@ def load_matching_api_data(
             if key in match_keys:
                 matched.append(record)
 
-    print(
-        f"[data_prepare] 从 api.jsonl 匹配到 {len(matched)} 条数据 "
-        f"(待匹配 {len(empty_impl_list)} 条)"
+    logger.info(
+        "从 api.jsonl 匹配到 %d 条数据 (待匹配 %d 条)",
+        len(matched), len(empty_impl_list),
     )
     return matched
 
@@ -98,10 +102,14 @@ def prepare_merged_input(
         for record in all_data:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-    print(
-        f"[data_prepare] 合并完成: 共 {len(all_data)} 条 API -> {merged_path}\n"
-        f"  Format 1 (有 impl 路径): {len(non_empty_impl)} 条\n"
-        f"  Format 2 (有 js_doc):    {len(matched_api)} 条"
+    logger.info(
+        "合并完成: 共 %d 条 API -> %s", len(all_data), merged_path,
+    )
+    logger.info(
+        "  Format 1 (有 impl 路径): %d 条", len(non_empty_impl),
+    )
+    logger.info(
+        "  Format 2 (有 js_doc):    %d 条", len(matched_api),
     )
     return merged_path
 
@@ -122,7 +130,7 @@ def jsonl_to_xlsx(jsonl_path: Path, xlsx_path: Path) -> int:
             records.append(json.loads(line))
 
     if not records:
-        print(f"[data_prepare] JSONL 文件为空，跳过 XLSX 生成: {jsonl_path}")
+        logger.info("JSONL 文件为空，跳过 XLSX 生成: %s", jsonl_path)
         return 0
 
     # 收集所有 key（保持首次出现的顺序）
@@ -144,5 +152,5 @@ def jsonl_to_xlsx(jsonl_path: Path, xlsx_path: Path) -> int:
 
     xlsx_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(str(xlsx_path))
-    print(f"[data_prepare] XLSX 已生成: {xlsx_path} ({len(records)} 行)")
+    logger.info("XLSX 已生成: %s (%d 行)", xlsx_path, len(records))
     return len(records)
