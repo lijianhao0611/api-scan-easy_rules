@@ -17,12 +17,12 @@ logger = get_logger("claude_runner")
 
 
 def _detect_cli() -> str:
-    """自动检测可用的 CLI 命令，优先 claude，其次 nga.cmd。"""
-    for cmd in ("claude", "nga.cmd"):
+    """自动检测可用的 CLI 命令"""
+    for cmd in ("claude","opencode.cmd","opencode","nga.cmd", "nga"):
         if shutil.which(cmd):
             logger.info("检测到 CLI: %s", cmd)
             return cmd
-    raise RuntimeError("未找到 claude 或 nga 命令，请确认已安装并加入 PATH")
+    raise RuntimeError("未找到 claude 或 nga 、opencode命令，请确认已安装并加入 PATH")
 
 
 CLAUDE_CLI: str = _detect_cli()
@@ -43,7 +43,7 @@ def _build_cmd(prompt: str) -> List[str]:
             ALLOWED_TOOLS,
         ]
     else:
-        # nga: ["nga.cmd", "run", prompt, "--thinking"]
+        # nga: ["nga.cmd/opencode.cmd", "run", prompt, "--thinking"]
         return [
             CLAUDE_CLI,
             "run",

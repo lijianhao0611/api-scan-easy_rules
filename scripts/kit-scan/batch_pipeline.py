@@ -128,10 +128,10 @@ def build_scan_prompt(
     """
 
     prompt = (
-        f"/api-level-scan\n"
-        f"api_input=\n{batch_input_path}\n"
-        f"repo_base={repo_base}\n"
-        f"out_path={batch_out_dir}\n"
+        f"/api-level-scan\t"
+        f"api_input={batch_input_path}\t"
+        f"repo_base={repo_base}\t"
+        f"out_path={batch_out_dir}\t"
 
     )
     if batch_out_dir.parent/'api_extraction_report.md' in batch_out_dir.parent.iterdir():

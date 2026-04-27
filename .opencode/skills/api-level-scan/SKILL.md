@@ -282,14 +282,14 @@ python3 {{skill_path}}/scripts/classify_findings.py "{{out_path}}/api_scan/raw_f
 
 | 文件 | 说明 |
 |------|------|
-| `api_scan_findings.jsonl` | JSONL 格式审计发现，每行一个发现（13 个字段） |
+| `api_scan_findings.jsonl` | JSONL 格式审计发现，每行一个发现（16 个字段） |
 | `api_call_chains.json` | 每个 API 的调用链 JSON |
 | `api_scan_summary.md` | 汇总报告，参照 `templates/api_scan_summary.md` |
 
 **JSONL 每行字段**：
 
 ```json
-{"kit":"AbilityKit","部件":"ability_ability_runtime","编号":"APITEST.ERRORCODE.0x.00x","问题描述":"规则描述","发现详情说明":"[调用链][问题详情][问题代码片段(5行以内)]","代码文件":"file.cpp,file.cpp","代码行位置":"196,210","受影响的api":"getWant","api声明":"function getWant(callback: AsyncCallback<Want>): void","声明文件位置":"@ohos.ability.featureAbility.d.ts","修改建议":"具体修改建议","问题严重等级":"严重","影响的错误码":"201,13900020"}
+{"kit":"AbilityKit","部件":"ability_ability_runtime","编号":"APITEST.ERRORCODE.0x.00x","问题描述":"规则描述","发现详情说明":"[调用链][问题详情][问题代码片段(5行以内)]","代码文件":"file.cpp,file.cpp","代码行位置":"196,210","受影响的api":"getWant","api声明":"function getWant(callback: AsyncCallback<Want>): void","声明文件位置":"@ohos.ability.featureAbility.d.ts","修改建议":"具体修改建议","问题严重等级":"严重","影响的错误码":"201,13900020","since":"7","deprecated":"since 9","reserved":""}
 ```
 
 | 字段 | 类型 | 说明 |
@@ -307,6 +307,9 @@ python3 {{skill_path}}/scripts/classify_findings.py "{{out_path}}/api_scan/raw_f
 | `修改建议` | string | AI 提供的具体修改建议 |
 | `问题严重等级` | string | `严重`/`高`/`中`/`低` |
 | `影响的错误码` | string | 开发者收到的逗号分隔数字错误码，无则为空字符串 |
+| `since` | string | @since 原始值，多个用 `; ` 连接；无则为空字符串 |
+| `deprecated` | string | @deprecated 值；无则为空字符串 |
+| `reserved` | string | @reserved 原始值；无则为空字符串 |
 
 **调用链 JSON 结构**：
 

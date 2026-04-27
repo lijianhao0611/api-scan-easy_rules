@@ -138,18 +138,26 @@ def extract_throws(blocks):
     return error_codes
 
 
+def extract_all_tag_values(blocks, tag):
+    """收集注释块中所有指定标签的值（处理多个同名标签）。"""
+    values = []
+    for block in blocks:
+        for line in block.split('\n'):
+            m = re.match(rf'\s*\*\s*{re.escape(tag)}\s+(.+)', line)
+            if m:
+                values.append(m.group(1).strip())
+    return values
+
+
 def extract_jsdoc_metadata(blocks):
     """从合并的 JSDoc 块中提取元数据字典。"""
-    since_raw = extract_tag_value(blocks, '@since')
-    api_version = ''
-    if since_raw:
-        m = re.match(r'(\d+)', since_raw)
-        if m:
-            api_version = m.group(1)
+    since_values = extract_all_tag_values(blocks, '@since')
     return {
         'syscap': extract_tag_value(blocks, '@syscap'),
         'permission': extract_tag_value(blocks, '@permission'),
-        'api_version': api_version,
+        'since': '; '.join(since_values),
+        'deprecated': extract_tag_value(blocks, '@deprecated'),
+        'reserved': extract_tag_value(blocks, '@reserved'),
         'is_system_api': has_tag(blocks, '@systemapi'),
         'error_codes': extract_throws(blocks),
     }
@@ -404,6 +412,7 @@ def parse_js_file(file_path, sdk_api_dir=None):
                 kit = normalize_kit_name(method_kit or file_kit)
 
                 sig = build_clean_signature(decl, decl_type)
+                metadata = extract_jsdoc_metadata(jsdoc_texts)
 
                 records.append({
                     "api_declaration": sig,
@@ -412,6 +421,9 @@ def parse_js_file(file_path, sdk_api_dir=None):
                     "declaration_file": decl_file,
                     "api_type": "js",
                     "_kit": kit,
+                    "since": metadata['since'],
+                    "deprecated": metadata['deprecated'],
+                    "reserved": metadata['reserved'],
                 })
 
         i = j
@@ -544,9 +556,9 @@ def parse_c_file(file_path, c_sdk_root=None):
         # 从 Doxygen 注释提取元数据
         since = ''
         for ln in comment.split('\n'):
-            m = re.match(r'\s*\*\s*@since\s+(\d+)', ln)
+            m = re.match(r'\s*\*\s*@since\s+(.+)', ln)
             if m:
-                since = m.group(1)
+                since = m.group(1).strip()
 
         permission = ''
         for ln in comment.split('\n'):
@@ -564,6 +576,9 @@ def parse_c_file(file_path, c_sdk_root=None):
             "api_type": "c",
             "library": file_library,
             "_kit": kit,
+            "since": since,
+            "deprecated": "",
+            "reserved": "",
         })
 
     return records

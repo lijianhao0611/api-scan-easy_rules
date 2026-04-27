@@ -86,7 +86,8 @@ def kit_exists_in_env(kit: str, kit_map: dict[str, list[str]], repo_base: str) -
 def build_command(
     kit_name: str,
     env: dict,
-    skip_extract: bool = False,
+    env_out_path: str,
+    restart: bool = False,
     max_parallel: int = 3,
     group_strategy: str = "auto",
     group_size: int = 80,
@@ -99,14 +100,14 @@ def build_command(
         "-kit", kit_name,
         "-js_decl_path", env["js_decl_path"],
         "-repo_base", env["repo_base"],
-        "-out_path", OUT_PATH,
+        "-out_path", env_out_path,
         "-max_parallel", str(max_parallel),
         "-group_strategy", group_strategy,
         "-group_size", str(group_size),
         "-api_error_code_doc_path", env["doc_path"],
     ]
-    if skip_extract:
-        cmd.append("-skip_extract")
+    if restart:
+        cmd.append("-restart")
     if rule_xlsx:
         cmd.extend(["-rule_xlsx", rule_xlsx])
     return cmd
@@ -120,11 +121,6 @@ def parse_args():
         "-kits",
         nargs="+",
         help="指定要扫描的 Kit 名称列表（支持子串匹配），不指定则扫描全部",
-    )
-    parser.add_argument(
-        "-skip_extract",
-        action="store_true",
-        help="跳过 kit-api-extract 步骤（已有 api.jsonl 和 impl_api.jsonl 时使用）",
     )
     parser.add_argument(
         "-max_parallel", type=int, default=3,
@@ -142,6 +138,11 @@ def parse_args():
     parser.add_argument(
         "-rule_xlsx", default="",
         help="规则 XLSX 文件路径"
+    )
+    parser.add_argument(
+        "-restart",
+        action="store_true",
+        help="清除已有结果，所有 Kit 从头开始（默认自动续跑）",
     )
     return parser.parse_args()
 
@@ -181,13 +182,15 @@ def main():
         if not Path(env["repo_base"]).exists():
             logger.warning("环境 %s 的 repo_base 不存在，跳过: %s", env_name, env["repo_base"])
             continue
+        env_out_path = str(Path(OUT_PATH) / env_name)
         logger.info("=" * 60)
-        logger.info("开始处理环境: %s", env_name)
+        logger.info("开始处理环境: %s (输出: %s)", env_name, env_out_path)
         logger.info("=" * 60)
 
         env_start = time.time()
         env_success = 0
         env_fail = 0
+        env_skip = 0
         env_timings: list[tuple[str, float]] = []
 
         for i, kit in enumerate(kits, 1):
@@ -195,10 +198,19 @@ def main():
                 logger.info("[%s] Kit '%s' 在此环境无 component 目录，跳过", env_name, kit)
                 continue
 
+            # 续跑模式：跳过已完成的 Kit
+            if not args.restart:
+                findings_path = Path(env_out_path) / kit / "api_scan" / "api_scan_findings.jsonl"
+                if findings_path.exists():
+                    env_skip += 1
+                    logger.info("[%s][%d/%d] Kit '%s' 已完成，跳过 (结果: %s)", env_name, i, len(kits), kit, findings_path)
+                    continue
+
             cmd = build_command(
                 kit,
                 env=env,
-                skip_extract=args.skip_extract,
+                env_out_path=env_out_path,
+                restart=args.restart,
                 max_parallel=args.max_parallel,
                 group_strategy=args.group_strategy,
                 group_size=args.group_size,
@@ -229,8 +241,8 @@ def main():
         if not args.dry_run:
             env_elapsed = time.time() - env_start
             logger.info("=" * 60)
-            logger.info("环境 [%s] 处理完毕: 成功 %d / 失败 %d, 总耗时 %.1fs, 平均 %.1fs/Kit",
-                        env_name, env_success, env_fail, env_elapsed,
+            logger.info("环境 [%s] 处理完毕: 成功 %d / 失败 %d / 跳过 %d, 总耗时 %.1fs, 平均 %.1fs/Kit",
+                        env_name, env_success, env_fail, env_skip, env_elapsed,
                         env_elapsed / len(env_timings) if env_timings else 0)
             for kit_name, dur in env_timings:
                 logger.info("  %s: %.1fs", kit_name, dur)

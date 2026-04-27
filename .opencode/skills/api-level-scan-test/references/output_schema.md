@@ -65,6 +65,9 @@ raw_findings.affected_error_codes    → JSONL.影响的错误码
 + 声明文件 @kit 标签                  → JSONL.kit
 + api_declaration                     → JSONL.api声明
 + declaration_file (仅文件名)          → JSONL.声明文件位置
++ since                               → JSONL.since
++ deprecated                          → JSONL.deprecated
++ reserved                            → JSONL.reserved
 ```
 
 **代码文件/代码行位置转换规则**：
@@ -95,6 +98,9 @@ raw_findings.affected_error_codes    → JSONL.影响的错误码
 | `修改建议` | string | 是 | AI 提供的具体修改建议 |
 | `问题严重等级` | string | 是 | `严重` / `高` / `中` / `低` |
 | `影响的错误码` | string | 是 | 开发者收到的逗号分隔数字错误码，无则为空字符串 `""` |
+| `since` | string | 是 | @since 原始值，多个用 `; ` 连接；无则为空字符串 `""` |
+| `deprecated` | string | 是 | @deprecated 值；无则为空字符串 `""` |
+| `reserved` | string | 是 | @reserved 原始值；无则为空字符串 `""` |
 
 ### 格式要求
 
@@ -110,7 +116,7 @@ raw_findings.affected_error_codes    → JSONL.影响的错误码
 ### 示例行
 
 ```json
-{"kit":"AbilityKit","部件":"ability_ability_runtime","编号":"APITEST.ERRORCODE.02.003","问题描述":"检查API的异常分支是否返回了错误码和错误信息","发现详情说明":"调用链 NAPI_PAGetWant->GetWant->Ability::GetWant：存在 2 处异常分支未返回错误码。(1)第196行 GetWant 返回失败时返回 undefined；(2)第210行 Ability::GetWant 静默返回","代码文件":"ability_ability_runtime/frameworks/js/napi/particleAbility/particle_ability.cpp,ability_ability_runtime/frameworks/native/ability/ability.cpp","代码行位置":"196,210","受影响的api":"getWant","api声明":"function getWant(callback: AsyncCallback<Want>): void","声明文件位置":"@ohos.ability.featureAbility.d.ts","修改建议":"(1)第196行 GetWant 失败时通过 napi_throw 抛出 BusinessError；(2)第210行 Ability::GetWant 同样抛出 BusinessError","问题严重等级":"严重","影响的错误码":""}
+{"kit":"AbilityKit","部件":"ability_ability_runtime","编号":"APITEST.ERRORCODE.02.003","问题描述":"检查API的异常分支是否返回了错误码和错误信息","发现详情说明":"调用链 NAPI_PAGetWant->GetWant->Ability::GetWant：存在 2 处异常分支未返回错误码。(1)第196行 GetWant 返回失败时返回 undefined；(2)第210行 Ability::GetWant 静默返回","代码文件":"ability_ability_runtime/frameworks/js/napi/particleAbility/particle_ability.cpp,ability_ability_runtime/frameworks/native/ability/ability.cpp","代码行位置":"196,210","受影响的api":"getWant","api声明":"function getWant(callback: AsyncCallback<Want>): void","声明文件位置":"@ohos.ability.featureAbility.d.ts","修改建议":"(1)第196行 GetWant 失败时通过 napi_throw 抛出 BusinessError；(2)第210行 Ability::GetWant 同样抛出 BusinessError","问题严重等级":"严重","影响的错误码":"","since":"7","deprecated":"since 9","reserved":""}
 ```
 
 ---

@@ -195,10 +195,10 @@ def build_prompts(
 
         # 构建提示词
         prompt = (
-            f"/api-level-scan\n"
-            f"api_input:\n{jsonl_text}\n\n"
-            f"repo_base={repo_base}\n"
-            f"out_path={batch_out_dir}"
+            f"/api-level-scan\t"
+            f"api_input:{jsonl_text}\t"
+            f"repo_base={repo_base}\t"
+            f"out_path={batch_out_dir}\t"
         )
         
         prompts.append(prompt)

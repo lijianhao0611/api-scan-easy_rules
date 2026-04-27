@@ -77,9 +77,9 @@ python3 skills/kit-api-extract/scripts/extract_kit_api.py \
 **输出格式**: `api.jsonl`，每行一个 API 声明：
 ```json
 // JS API 记录
-{"api_declaration":"function xxx(params): returnType","js_doc":"/** ... */","module_name":"@ohos.xxx","declaration_file":"api/@ohos.xxx.d.ts","api_type":"js"}
+{"api_declaration":"function xxx(params): returnType","js_doc":"/** ... */","module_name":"@ohos.xxx","declaration_file":"api/@ohos.xxx.d.ts","api_type":"js","since":"10 dynamic; 23 static","deprecated":"since 11","reserved":"[\"liteWearable\"]"}
 // C API 记录
-{"api_declaration":"OH_Xxx_Function(params)","js_doc":"/** ... */","module_name":"KitName.filename","declaration_file":"KitName/filename.h","api_type":"c","library":"libxxx.so"}
+{"api_declaration":"OH_Xxx_Function(params)","js_doc":"/** ... */","module_name":"KitName.filename","declaration_file":"KitName/filename.h","api_type":"c","library":"libxxx.so","since":"11","deprecated":"","reserved":""}
 ```
 获取到脚本输出后即可开始进行下一步的结构关系抽取。
 
@@ -190,7 +190,7 @@ Step 4 — 归纳代码路径：
 - 业务逻辑实现: impl_cpp_path(业务逻辑实现文件相对路径)
 
 请以 JSONL 格式保存结果则至{{output_dir}}/subagent_res/impl_api_subagent_{{i}}.jsonl，每个 API 一行json对象：
-  {"api_declaration": "function xxx(params): returnType","module_name": "{{module_name}}","impl_api_name": "CppFuncName","impl_repo_path": "repo_name","declaration_file": "api/@ohos.xxx.d.ts","NAPI_map_file": "repo_name/path/to/napi_file.cpp","Framework_decl_file": "repo_name/path/to/framework.h","impl_file_path": "repo_name/path/to/impl.cpp"
+  {"api_declaration": "function xxx(params): returnType","module_name": "{{module_name}}","impl_api_name": "CppFuncName","impl_repo_path": "repo_name","declaration_file": "api/@ohos.xxx.d.ts","NAPI_map_file": "repo_name/path/to/napi_file.cpp","Framework_decl_file": "repo_name/path/to/framework.h","impl_file_path": "repo_name/path/to/impl.cpp","since": "10 dynamic; 23 static","deprecated": "since 11","reserved": "[\"liteWearable\"]"
   }
 
 如果某个层无法定位，对应字段留空字符串 ""。必须保存
@@ -198,7 +198,7 @@ Step 4 — 归纳代码路径：
 Step 5 - 校验输出文件的格式准确:
 确保{{output_dir}}/subagent_res/impl_api_subagent_{{i}}.jsonl文件的格式正确，每行都是一个包含以下字段的 JSON 对象：
 
-  {"api_declaration": "function xxx(params): returnType","module_name": "{{module_name}}","js_doc": "/** ... */","impl_api_name": "CppFuncName","impl_repo_path": "repo_name","declaration_file": "api/@ohos.xxx.d.ts","NAPI_map_file": "repo_name/path/to/napi_file.cpp","Framework_decl_file": "repo_name/path/to/framework.h","impl_file_path": "repo_name/path/to/impl.cpp"
+  {"api_declaration": "function xxx(params): returnType","module_name": "{{module_name}}","js_doc": "/** ... */","impl_api_name": "CppFuncName","impl_repo_path": "repo_name","declaration_file": "api/@ohos.xxx.d.ts","NAPI_map_file": "repo_name/path/to/napi_file.cpp","Framework_decl_file": "repo_name/path/to/framework.h","impl_file_path": "repo_name/path/to/impl.cpp","since": "10 dynamic; 23 static","deprecated": "since 11","reserved": "[\"liteWearable\"]"
   }
 
 Step 6 - 记录探索过程中的关键发现:
@@ -256,7 +256,10 @@ Step 4 — 输出 JSONL 格式结果（NAPI_map_file 和 impl_api_name 留空）
   "NAPI_map_file": "repo_name/path/to/napi_file.cpp",
   "Framework_decl_file": "repo_name/path/to/framework.h",
   "impl_file_path": "repo_name/path/to/impl.cpp",
-  "api_type": "js"
+  "api_type": "js",
+  "since": "10 dynamic; 23 static",
+  "deprecated": "since 11",
+  "reserved": "[\"liteWearable\"]"
 }
 // C API 记录
 {
@@ -269,7 +272,10 @@ Step 4 — 输出 JSONL 格式结果（NAPI_map_file 和 impl_api_name 留空）
   "NAPI_map_file": "",
   "Framework_decl_file": "",
   "impl_file_path": "repo_name/path/to/impl.c",
-  "api_type": "c"
+  "api_type": "c",
+  "since": "11",
+  "deprecated": "",
+  "reserved": ""
 }
 ```
 
@@ -287,6 +293,9 @@ Step 4 — 输出 JSONL 格式结果（NAPI_map_file 和 impl_api_name 留空）
 | `Framework_decl_file` | Framework 接口声明 .h 文件相对路径 |
 | `impl_file_path` | 业务逻辑实现文件相对路径 |
 | `api_type` | API 类型：`"js"` 或 `"c"` |
+| `since` | @since 原始值，多个用 `; ` 连接（如 `"10 dynamic; 23 static"`）；C API 为版本号（如 `"11"`） |
+| `deprecated` | @deprecated 值（如 `"since 11"`）；无则为空字符串；C API 始终为空 |
+| `reserved` | @reserved 原始值（如 `["liteWearable"]`）；无则为空字符串；C API 始终为空 |
 
 3. **更新映射模式知识库**：检查探索过程中是否发现 `reference/MAPPING_PATTERNS.md` 中未记录的新映射模式，若有则按模板格式追加。
 

@@ -65,7 +65,7 @@ python3 {{skill_path}}/scripts/classify_findings.py "{{out_path}}/api_scan/raw_f
 
 ### 6. 生成 api_scan_findings.jsonl
 
-读取 `classified_findings.json`，对每条 finding 转换为 13 个中文字段的 JSONL 格式：
+读取 `classified_findings.json`，对每条 finding 转换为 16 个字段的 JSONL 格式：
 
 字段映射：
 
@@ -84,12 +84,15 @@ python3 {{skill_path}}/scripts/classify_findings.py "{{out_path}}/api_scan/raw_f
 | `modification_suggestion` | `修改建议` |
 | `severity_level` | `问题严重等级` |
 | `affected_error_codes` | `影响的错误码` |
+| (since) | `since` |
+| (deprecated) | `deprecated` |
+| (reserved) | `reserved` |
 
-注意：`kit`、`api声明`、`声明文件位置` 三个字段需要从分组输入文件（`groups/group_{i}.jsonl`）中查找对应的 API 记录来获取。通过 `affected_apis` 和 `component` 交叉匹配。
+注意：`kit`、`api声明`、`声明文件位置`、`since`、`deprecated`、`reserved` 六个字段需要从分组输入文件（`groups/group_{i}.jsonl`）中查找对应的 API 记录来获取。通过 `affected_apis` 和 `component` 交叉匹配。
 
 每行格式：
 ```json
-{"kit":"AbilityKit","部件":"ability_ability_runtime","编号":"APITEST.ERRORCODE.02.003","问题描述":"...","发现详情说明":"[调用链 ...]...","代码文件":"file.cpp","代码行位置":"196","受影响的api":"getWant","api声明":"function getWant(...): void","声明文件位置":"@ohos.ability.featureAbility.d.ts","修改建议":"...","问题严重等级":"严重","影响的错误码":"201,13900020"}
+{"kit":"AbilityKit","部件":"ability_ability_runtime","编号":"APITEST.ERRORCODE.02.003","问题描述":"...","发现详情说明":"[调用链 ...]...","代码文件":"file.cpp","代码行位置":"196","受影响的api":"getWant","api声明":"function getWant(...): void","声明文件位置":"@ohos.ability.featureAbility.d.ts","修改建议":"...","问题严重等级":"严重","影响的错误码":"201,13900020","since":"7","deprecated":"since 9","reserved":""}
 ```
 
 ### 7. 生成汇总报告

@@ -26,3 +26,12 @@ __pycache__/
 
 # docs
 docs/
+/output/
+/logs/
+/repo/oh/DataBase
+/repo/oh/docs
+/repo/oh/interface_sdk-js
+/repo/ho/DataBase
+/repo/ho/docs
+/repo/ho/interface_sdk-js
+/.idea

@@ -1,13 +1,13 @@
 {
   "out_path": "./output",
   "oh": {
-    "js_decl_path": "./oh/interface_sdk-js",
-    "repo_base": "./oh/DataBase",
-    "doc_path": "./oh/docs"
+    "js_decl_path": "./repo/oh/interface_sdk-js",
+    "repo_base": "./repo/oh/DataBase",
+    "doc_path": "./repo/oh/docs"
   },
   "ho": {
-    "js_decl_path": "./ho/interface_sdk-js",
-    "repo_base": "./ho/DataBase",
-    "doc_path": "./ho/docs"
+    "js_decl_path": "./repo/ho/interface_sdk-js",
+    "repo_base": "./repo/ho/DataBase",
+    "doc_path": "./repo/ho/docs"
   }
 }

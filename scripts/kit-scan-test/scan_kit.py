@@ -15,6 +15,7 @@ scan_kit.py - Kit 级 API 审计流水线入口（Harness 模式）
 
 import argparse
 import json
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -64,11 +65,11 @@ def build_extract_prompt(
 ) -> str:
     """生成 kit-api-extract 技能的 prompt。"""
     prompt = (
-        f"/kit-api-extract\n"
-        f"kit_name = {kit_name}\n"
-        f"js_sdk_path = {js_sdk_path}\n"
-        f"databases_dir = {repo_base}\n"
-        f"output_dir = {output_dir}"
+        f"/kit-api-extract\t"
+        f"kit_name = {kit_name}\t"
+        f"js_sdk_path = {js_sdk_path}\t"
+        f"databases_dir = {repo_base}\t"
+        f"output_dir = {output_dir}\t"
     )
     return prompt
 
@@ -86,13 +87,13 @@ def build_scan_prompt(
 ) -> str:
     """生成 api-level-scan-test 技能的 prompt。"""
     prompt = (
-        f"/api-level-scan-test\n"
-        f"api_input={merged_input_path}\n"
-        f"repo_base={repo_base}\n"
-        f"out_path={out_path}\n"
-        f"max_parallel={max_parallel}\n"
-        f"group_strategy={group_strategy}\n"
-        f"group_size={group_size}"
+        f"/api-level-scan-test\t"
+        f"api_input={merged_input_path}\t"
+        f"repo_base={repo_base}\t"
+        f"out_path={out_path}\t"
+        f"max_parallel={max_parallel}\t"
+        f"group_strategy={group_strategy}\t"
+        f"group_size={group_size}\t"
     )
     if rule_xlsx:
         prompt += f"\nrule_xlsx={rule_xlsx}"
@@ -141,9 +142,9 @@ def parse_args() -> argparse.Namespace:
         help="API 错误码文档开源仓根目录（可选）"
     )
     parser.add_argument(
-        "-skip_extract",
+        "-restart",
         action="store_true",
-        help="跳过 kit-api-extract 步骤（已有 api.jsonl 和 impl_api.jsonl 时使用）",
+        help="清除已有输出目录，从头开始（默认自动续跑）",
     )
     return parser.parse_args()
 
@@ -168,6 +169,14 @@ def main():
     logger.info("分组策略: %s (group_size=%d)", args.group_strategy, args.group_size)
     logger.info("并行度: %d", args.max_parallel)
 
+    # -restart 模式：清除已有输出目录
+    if args.restart:
+        if output_dir.exists():
+            shutil.rmtree(output_dir)
+            logger.info("-restart 模式，已清除输出目录: %s", output_dir)
+    else:
+        logger.info("续跑模式（自动跳过已完成步骤）")
+
     # 验证 Kit 声明文件存在
     kit_file = resolve_kit_file(kit_name, js_decl_path)
     logger.info("Kit 声明文件: %s", kit_file)
@@ -178,7 +187,15 @@ def main():
     # ========================================
     # Step 1: 调用 kit-api-extract 提取 API
     # ========================================
-    if not args.skip_extract:
+    api_path = output_dir / "api.jsonl"
+    impl_api_path = output_dir / "impl_api.jsonl"
+
+    # 自动检测：若两个文件均存在则跳过 Step 1（除非 -restart 已清除）
+    skip_step1 = api_path.exists() and impl_api_path.exists()
+
+    if skip_step1:
+        logger.info("检测到已有 api.jsonl 和 impl_api.jsonl，跳过 Step 1")
+    else:
         logger.info("=" * 60)
         logger.info("Step 1: 调用 kit-api-extract 提取 API 数据")
         logger.info("=" * 60)
@@ -197,15 +214,11 @@ def main():
         logger.info("Step 1 完成，耗时 %.1fs", step_timings["Step1_kit-api-extract"])
 
         # 验证输出文件
-        api_path = output_dir / "api.jsonl"
-        impl_api_path = output_dir / "impl_api.jsonl"
         if not api_path.exists() or not impl_api_path.exists():
             logger.error("提取后未找到 api.jsonl 或 impl_api.jsonl")
             logger.error("  api.jsonl: %s (%s)", api_path, "存在" if api_path.exists() else "不存在")
             logger.error("  impl_api.jsonl: %s (%s)", impl_api_path, "存在" if impl_api_path.exists() else "不存在")
             sys.exit(1)
-    else:
-        logger.info("跳过 kit-api-extract 步骤 (-skip_extract)")
 
     # ========================================
     # Step 2: 数据准备 — 合并为单个输入文件
@@ -242,30 +255,35 @@ def main():
     # ========================================
     # Step 3: 调用 api-level-scan-test 技能
     # ========================================
-    logger.info("=" * 60)
-    logger.info("Step 3: 调用 api-level-scan-test 进行审计")
-    logger.info("=" * 60)
+    findings_path = output_dir / "api_scan" / "api_scan_findings.jsonl"
 
-    scan_prompt = build_scan_prompt(
-        merged_input_path=str(merged_path.resolve()),
-        repo_base=str(repo_base),
-        out_path=str(output_dir.resolve()),
-        max_parallel=args.max_parallel,
-        group_strategy=args.group_strategy,
-        group_size=args.group_size,
-        rule_xlsx=args.rule_xlsx,
-        api_error_code_doc_path=args.api_error_code_doc_path,
-        kit_name=kit_name,
-    )
-    logger.info("执行 api-level-scan-test")
+    if findings_path.exists():
+        logger.info("检测到已有审计结果: %s，跳过 Step 3", findings_path)
+    else:
+        logger.info("=" * 60)
+        logger.info("Step 3: 调用 api-level-scan-test 进行审计")
+        logger.info("=" * 60)
 
-    t0 = time.time()
-    success, _ = claude_runner.run_claude_command(scan_prompt)
-    step_timings["Step3_api-level-scan-test"] = time.time() - t0
-    if not success:
-        logger.error("api-level-scan-test 执行失败 (耗时 %.1fs)", step_timings["Step3_api-level-scan-test"])
-        sys.exit(1)
-    logger.info("Step 3 完成，耗时 %.1fs", step_timings["Step3_api-level-scan-test"])
+        scan_prompt = build_scan_prompt(
+            merged_input_path=str(merged_path.resolve()),
+            repo_base=str(repo_base),
+            out_path=str(output_dir.resolve()),
+            max_parallel=args.max_parallel,
+            group_strategy=args.group_strategy,
+            group_size=args.group_size,
+            rule_xlsx=args.rule_xlsx,
+            api_error_code_doc_path=args.api_error_code_doc_path,
+            kit_name=kit_name,
+        )
+        logger.info("执行 api-level-scan-test")
+
+        t0 = time.time()
+        success, _ = claude_runner.run_claude_command(scan_prompt)
+        step_timings["Step3_api-level-scan-test"] = time.time() - t0
+        if not success:
+            logger.error("api-level-scan-test 执行失败 (耗时 %.1fs)", step_timings["Step3_api-level-scan-test"])
+            sys.exit(1)
+        logger.info("Step 3 完成，耗时 %.1fs", step_timings["Step3_api-level-scan-test"])
 
     # 检查技能输出
     findings_path = output_dir / "api_scan" / "api_scan_findings.jsonl"

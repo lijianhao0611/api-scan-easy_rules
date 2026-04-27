@@ -12,6 +12,7 @@ scan_kit.py - Kit 级 API 审计流水线入口
 """
 
 import argparse
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -61,11 +62,11 @@ def build_extract_prompt(
 ) -> str:
     """生成 kit-api-extract 技能的 prompt。"""
     prompt = (
-        f"/kit-api-extract\n"
-        f"kit_name = {kit_name}\n"
-        f"js_sdk_path = {js_sdk_path}\n"
-        f"databases_dir = {repo_base}\n"
-        f"output_dir = {output_dir}"
+        f"/kit-api-extract\t"
+        f"kit_name = {kit_name}\t"
+        f"js_sdk_path = {js_sdk_path}\t"
+        f"databases_dir = {repo_base}\t"
+        f"output_dir = {output_dir}\t"
     )
     return prompt
 
@@ -91,9 +92,9 @@ def parse_args() -> argparse.Namespace:
         "-batch_size", type=int, default=20, help="每个 batch 包含的 API 数量 (默认: 20)"
     )
     parser.add_argument(
-        "-skip_extract",
+        "-restart",
         action="store_true",
-        help="跳过 kit-api-extract 步骤（已有 api.jsonl 和 impl_api.jsonl 时使用）",
+        help="清除已有输出目录，从头开始（默认自动续跑）",
     )
     return parser.parse_args()
 
@@ -117,6 +118,14 @@ def main():
     logger.info("仓库基础: %s", repo_base)
     logger.info("Batch 大小: %d", args.batch_size)
 
+    # -restart 模式：清除已有输出目录
+    if args.restart:
+        if output_dir.exists():
+            shutil.rmtree(output_dir)
+            logger.info("-restart 模式，已清除输出目录: %s", output_dir)
+    else:
+        logger.info("续跑模式（自动跳过已完成步骤）")
+
     # 验证 Kit 声明文件存在
     kit_file = resolve_kit_file(kit_name, js_decl_path)
     logger.info("Kit 声明文件: %s", kit_file)
@@ -127,7 +136,15 @@ def main():
     # ========================================
     # Step 1: 调用 kit-api-extract 提取 API
     # ========================================
-    if not args.skip_extract:
+    api_path = output_dir / "api.jsonl"
+    impl_api_path = output_dir / "impl_api.jsonl"
+
+    # 自动检测：若两个文件均存在则跳过 Step 1（除非 -restart 已清除）
+    skip_step1 = api_path.exists() and impl_api_path.exists()
+
+    if skip_step1:
+        logger.info("检测到已有 api.jsonl 和 impl_api.jsonl，跳过 Step 1")
+    else:
         logger.info("=" * 60)
         logger.info("Step 1: 调用 kit-api-extract 提取 API 数据")
         logger.info("=" * 60)
@@ -146,15 +163,11 @@ def main():
         logger.info("Step 1 完成，耗时 %.1fs", step_timings["Step1_kit-api-extract"])
 
         # 验证输出文件
-        api_path = output_dir / "api.jsonl"
-        impl_api_path = output_dir / "impl_api.jsonl"
         if not api_path.exists() or not impl_api_path.exists():
             logger.error("提取后未找到 api.jsonl 或 impl_api.jsonl")
             logger.error("  api.jsonl: %s (%s)", api_path, "存在" if api_path.exists() else "不存在")
             logger.error("  impl_api.jsonl: %s (%s)", impl_api_path, "存在" if impl_api_path.exists() else "不存在")
             sys.exit(1)
-    else:
-        logger.info("跳过 kit-api-extract 步骤 (-skip_extract)")
 
     # ========================================
     # Step 2: 批量审计
@@ -162,9 +175,6 @@ def main():
     logger.info("=" * 60)
     logger.info("Step 2: 批量 API 审计")
     logger.info("=" * 60)
-
-    api_path = output_dir / "api.jsonl"
-    impl_api_path = output_dir / "impl_api.jsonl"
 
     if not api_path.exists() or not impl_api_path.exists():
         logger.error("缺少 api.jsonl 或 impl_api.jsonl")
@@ -181,25 +191,34 @@ def main():
         logger.warning("没有数据需要处理")
         sys.exit(0)
 
-    # 执行批量审计
-    try:
+    # 检测是否所有 batch 都已完成
+    batch_result_dir = output_dir / "batch_result"
+    all_batches_done = all(
+        (batch_result_dir / f"batch_{idx}" / "api_scan" / "api_scan_findings.jsonl").exists()
+        for idx in range(len(batch_paths))
+    )
+
+    if all_batches_done:
+        logger.info("所有 %d 个 batch 结果已存在，跳过 Step 2", len(batch_paths))
+    else:
+        # 执行批量审计
         t0 = time.time()
         claude_runner.run_batch_scan(
             batch_paths, output_dir, repo_base, batch_pipeline.build_scan_prompt
         )
         step_timings["Step2_批量审计"] = time.time() - t0
         logger.info("Step 2 完成，耗时 %.1fs", step_timings["Step2_批量审计"])
-    finally:
-        # 合并结果（直接扫描 batch_result 目录）
-        t0 = time.time()
-        merged_path = output_dir / "batch_result" / "merged_api_scan_findings.jsonl"
-        batch_pipeline.merge_batch_results(output_dir, merged_path)
 
-        # 将合并结果转为 XLSX
-        if merged_path.exists():
-            xlsx_path = merged_path.with_suffix(".xlsx")
-            batch_pipeline.jsonl_to_xlsx(merged_path, xlsx_path)
-        step_timings["结果合并与XLSX转换"] = time.time() - t0
+    # Step 3: 合并结果（始终执行）
+    t0 = time.time()
+    merged_path = output_dir / "batch_result" / "merged_api_scan_findings.jsonl"
+    batch_pipeline.merge_batch_results(output_dir, merged_path)
+
+    # 将合并结果转为 XLSX
+    if merged_path.exists():
+        xlsx_path = merged_path.with_suffix(".xlsx")
+        batch_pipeline.jsonl_to_xlsx(merged_path, xlsx_path)
+    step_timings["结果合并与XLSX转换"] = time.time() - t0
 
     logger.info("=" * 60)
     logger.info("流水线执行完毕")
