@@ -1,0 +1,13 @@
+{
+  "out_path": "./output",
+  "oh": {
+    "js_decl_path": "./oh/interface_sdk-js",
+    "repo_base": "./oh/DataBase",
+    "doc_path": "./oh/docs"
+  },
+  "ho": {
+    "js_decl_path": "./ho/interface_sdk-js",
+    "repo_base": "./ho/DataBase",
+    "doc_path": "./ho/docs"
+  }
+}

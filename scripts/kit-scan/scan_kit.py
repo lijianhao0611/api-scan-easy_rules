@@ -13,6 +13,7 @@ scan_kit.py - Kit 级 API 审计流水线入口
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 import batch_pipeline
@@ -120,6 +121,9 @@ def main():
     kit_file = resolve_kit_file(kit_name, js_decl_path)
     logger.info("Kit 声明文件: %s", kit_file)
 
+    pipeline_start = time.time()
+    step_timings: dict[str, float] = {}
+
     # ========================================
     # Step 1: 调用 kit-api-extract 提取 API
     # ========================================
@@ -133,10 +137,13 @@ def main():
             kit_name, str(js_decl_path), str(repo_base), str(output_dir)
         )
 
+        t0 = time.time()
         success, _ = claude_runner.run_claude_command(prompt)
+        step_timings["Step1_kit-api-extract"] = time.time() - t0
         if not success:
-            logger.error("kit-api-extract 执行失败")
+            logger.error("kit-api-extract 执行失败 (耗时 %.1fs)", step_timings["Step1_kit-api-extract"])
             sys.exit(1)
+        logger.info("Step 1 完成，耗时 %.1fs", step_timings["Step1_kit-api-extract"])
 
         # 验证输出文件
         api_path = output_dir / "api.jsonl"
@@ -176,11 +183,15 @@ def main():
 
     # 执行批量审计
     try:
+        t0 = time.time()
         claude_runner.run_batch_scan(
             batch_paths, output_dir, repo_base, batch_pipeline.build_scan_prompt
         )
+        step_timings["Step2_批量审计"] = time.time() - t0
+        logger.info("Step 2 完成，耗时 %.1fs", step_timings["Step2_批量审计"])
     finally:
         # 合并结果（直接扫描 batch_result 目录）
+        t0 = time.time()
         merged_path = output_dir / "batch_result" / "merged_api_scan_findings.jsonl"
         batch_pipeline.merge_batch_results(output_dir, merged_path)
 
@@ -188,9 +199,14 @@ def main():
         if merged_path.exists():
             xlsx_path = merged_path.with_suffix(".xlsx")
             batch_pipeline.jsonl_to_xlsx(merged_path, xlsx_path)
+        step_timings["结果合并与XLSX转换"] = time.time() - t0
 
     logger.info("=" * 60)
     logger.info("流水线执行完毕")
+    total_elapsed = time.time() - pipeline_start
+    logger.info("总耗时: %.1fs", total_elapsed)
+    for name, dur in step_timings.items():
+        logger.info("  %s: %.1fs", name, dur)
     logger.info("=" * 60)
 
 

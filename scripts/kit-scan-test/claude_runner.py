@@ -6,6 +6,7 @@ claude_runner.py - CLI 执行模块
 
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import List, Tuple
 
@@ -122,6 +123,7 @@ def run_claude_command(prompt: str) -> Tuple[bool, str]:
         (success, output) — output 包含所有尝试的累积输出
     """
     last_output: str = ""
+    start = time.time()
 
     for attempt in range(1, MAX_RETRIES + 1):
         current_prompt = prompt if attempt == 1 else prompt + RETRY_PROMPT_SUFFIX
@@ -133,11 +135,15 @@ def run_claude_command(prompt: str) -> Tuple[bool, str]:
         last_output = output
 
         if success:
+            elapsed = time.time() - start
             if attempt > 1:
-                logger.info("第 %d 次尝试成功", attempt)
+                logger.info("第 %d 次尝试成功 (总耗时 %.1fs)", attempt, elapsed)
+            else:
+                logger.info("执行完成，耗时 %.1fs", elapsed)
             return True, output
 
         logger.error("第 %d/%d 次执行失败", attempt, MAX_RETRIES)
 
-    logger.error("已达最大重试次数 (%d)，放弃执行", MAX_RETRIES)
+    elapsed = time.time() - start
+    logger.error("已达最大重试次数 (%d)，放弃执行 (总耗时 %.1fs)", MAX_RETRIES, elapsed)
     return False, last_output

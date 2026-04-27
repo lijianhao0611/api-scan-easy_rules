@@ -16,6 +16,7 @@ scan_kit.py - Kit 级 API 审计流水线入口（Harness 模式）
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 import data_prepare
@@ -171,6 +172,9 @@ def main():
     kit_file = resolve_kit_file(kit_name, js_decl_path)
     logger.info("Kit 声明文件: %s", kit_file)
 
+    pipeline_start = time.time()
+    step_timings: dict[str, float] = {}
+
     # ========================================
     # Step 1: 调用 kit-api-extract 提取 API
     # ========================================
@@ -184,10 +188,13 @@ def main():
             kit_name, str(js_decl_path), str(repo_base), str(output_dir)
         )
         logger.info("执行 kit-api-extract")
+        t0 = time.time()
         success, _ = claude_runner.run_claude_command(prompt)
+        step_timings["Step1_kit-api-extract"] = time.time() - t0
         if not success:
-            logger.error("kit-api-extract 执行失败")
+            logger.error("kit-api-extract 执行失败 (耗时 %.1fs)", step_timings["Step1_kit-api-extract"])
             sys.exit(1)
+        logger.info("Step 1 完成，耗时 %.1fs", step_timings["Step1_kit-api-extract"])
 
         # 验证输出文件
         api_path = output_dir / "api.jsonl"
@@ -215,11 +222,14 @@ def main():
         sys.exit(1)
 
     # 加载并分离数据
+    t0 = time.time()
     empty_impl, non_empty_impl = data_prepare.load_and_split_impl_api(impl_api_path)
     matched_api = data_prepare.load_matching_api_data(api_path, empty_impl)
     merged_path = data_prepare.prepare_merged_input(
         non_empty_impl, matched_api, output_dir
     )
+    step_timings["Step2_数据准备"] = time.time() - t0
+    logger.info("Step 2 完成，耗时 %.1fs", step_timings["Step2_数据准备"])
 
     # 检查合并结果是否为空
     with open(merged_path, "r", encoding="utf-8") as f:
@@ -249,10 +259,13 @@ def main():
     )
     logger.info("执行 api-level-scan-test")
 
+    t0 = time.time()
     success, _ = claude_runner.run_claude_command(scan_prompt)
+    step_timings["Step3_api-level-scan-test"] = time.time() - t0
     if not success:
-        logger.error("api-level-scan-test 执行失败")
+        logger.error("api-level-scan-test 执行失败 (耗时 %.1fs)", step_timings["Step3_api-level-scan-test"])
         sys.exit(1)
+    logger.info("Step 3 完成，耗时 %.1fs", step_timings["Step3_api-level-scan-test"])
 
     # 检查技能输出
     findings_path = output_dir / "api_scan" / "api_scan_findings.jsonl"
@@ -275,13 +288,20 @@ def main():
     logger.info("=" * 60)
 
     if findings_path.exists():
+        t0 = time.time()
         xlsx_path = findings_path.with_suffix(".xlsx")
         data_prepare.jsonl_to_xlsx(findings_path, xlsx_path)
+        step_timings["Step4_XLSX转换"] = time.time() - t0
+        logger.info("Step 4 完成，耗时 %.1fs", step_timings["Step4_XLSX转换"])
     else:
         logger.info("审计结果文件不存在，跳过 XLSX 转换")
 
     logger.info("=" * 60)
     logger.info("流水线执行完毕")
+    total_elapsed = time.time() - pipeline_start
+    logger.info("总耗时: %.1fs", total_elapsed)
+    for name, dur in step_timings.items():
+        logger.info("  %s: %.1fs", name, dur)
     logger.info("=" * 60)
 
 
