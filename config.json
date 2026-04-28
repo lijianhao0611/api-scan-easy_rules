@@ -2,11 +2,13 @@
   "out_path": "./output",
   "oh": {
     "js_decl_path": "./repo/oh/interface_sdk-js",
+    "c_decl_path": "./repo/oh/interface_sdk-c",
     "repo_base": "./repo/oh/DataBase",
     "doc_path": "./repo/oh/docs"
   },
   "ho": {
     "js_decl_path": "./repo/ho/interface_sdk-js",
+    "c_decl_path": "./repo/ho/interface_sdk-c",
     "repo_base": "./repo/ho/DataBase",
     "doc_path": "./repo/ho/docs"
   }

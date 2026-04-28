@@ -61,7 +61,8 @@ def resolve_kit_file(kit_name: str, js_sdk_path: Path) -> Path:
 
 
 def build_extract_prompt(
-    kit_name: str, js_sdk_path: str, repo_base: str, output_dir: str
+    kit_name: str, js_sdk_path: str, repo_base: str, output_dir: str,
+    c_sdk_path: str = ""
 ) -> str:
     """生成 kit-api-extract 技能的 prompt。"""
     prompt = (
@@ -71,6 +72,8 @@ def build_extract_prompt(
         f"databases_dir = {repo_base}\t"
         f"output_dir = {output_dir}\t"
     )
+    if c_sdk_path:
+        prompt += f"c_sdk_path = {c_sdk_path}\t"
     return prompt
 
 
@@ -119,6 +122,9 @@ def parse_args() -> argparse.Namespace:
         "-js_decl_path", required=True, help="interface_sdk-js 目录路径"
     )
     parser.add_argument(
+        "-c_decl_path", default="", help="interface_sdk-c 目录路径（可选）"
+    )
+    parser.add_argument(
         "-repo_base", required=True, help="DataBases 目录路径（包含各部件仓库）"
     )
     parser.add_argument(
@@ -160,11 +166,14 @@ def main():
     kit_name = normalize_kit_name(args.kit)
     output_dir = Path(args.out_path) / kit_name
     js_decl_path = Path(args.js_decl_path)
+    c_decl_path = args.c_decl_path  # 可选，可能为空字符串
     repo_base = Path(args.repo_base).resolve()
 
     logger.info("Kit: %s", kit_name)
     logger.info("输出目录: %s", output_dir)
     logger.info("SDK 路径: %s", js_decl_path)
+    if c_decl_path:
+        logger.info("C SDK 路径: %s", c_decl_path)
     logger.info("仓库基础: %s", repo_base)
     logger.info("分组策略: %s (group_size=%d)", args.group_strategy, args.group_size)
     logger.info("并行度: %d", args.max_parallel)
@@ -202,7 +211,8 @@ def main():
 
         output_dir.mkdir(parents=True, exist_ok=True)
         prompt = build_extract_prompt(
-            kit_name, str(js_decl_path), str(repo_base), str(output_dir)
+            kit_name, str(js_decl_path), str(repo_base), str(output_dir),
+            c_sdk_path=c_decl_path
         )
         logger.info("执行 kit-api-extract")
         t0 = time.time()

@@ -195,6 +195,10 @@ Step 4 — 归纳代码路径：
 
 如果某个层无法定位，对应字段留空字符串 ""。必须保存
 
+**重要**：所有文件路径字段必须使用正斜杠 (/) 格式，绝对不要使用 Windows 反斜杠 (\)。
+例如：`"D:/workspace/path/to/file.cpp"` 而不是 `"D:\workspace\path\to\file.cpp"`。
+反斜杠在 JSON 中是无效的转义字符，会导致解析失败。
+
 Step 5 - 校验输出文件的格式准确:
 确保{{output_dir}}/subagent_res/impl_api_subagent_{{i}}.jsonl文件的格式正确，每行都是一个包含以下字段的 JSON 对象：
 
@@ -235,6 +239,8 @@ Step 2 — 跳过 NAPI 映射（C API 无 NAPI 层），直接搜索实现：
   4. 优先选择 .cpp/.c 文件而非 .h 文件
 Step 3 — 如找到 Framework 接口头文件（interfaces/inner_api/ 下的 .h），记录。
 Step 4 — 输出 JSONL 格式结果（NAPI_map_file 和 impl_api_name 留空）。
+
+**重要**：所有文件路径字段必须使用正斜杠 (/) 格式，绝对不要使用 Windows 反斜杠 (\)。
 
 保存至 {{output_dir}}/subagent_res/impl_api_subagent_c_{{i}}.jsonl
 ```

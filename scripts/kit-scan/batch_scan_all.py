@@ -93,6 +93,9 @@ def build_command(kit_name: str, env: dict, env_out_path: str, restart: bool = F
         "-repo_base", env["repo_base"],
         "-out_path", env_out_path,
     ]
+    # c_decl_path 是可选的，只有配置中存在且不为空时才添加
+    if env.get("c_decl_path"):
+        cmd.extend(["-c_decl_path", env["c_decl_path"]])
     if restart:
         cmd.append("-restart")
     return cmd

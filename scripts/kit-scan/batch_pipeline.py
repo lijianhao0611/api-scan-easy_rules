@@ -6,6 +6,7 @@ batch_pipeline.py - 批量 API 数据处理模块
 """
 
 import json
+import re
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
 
@@ -16,6 +17,56 @@ logger = get_logger("batch_pipeline")
 
 # 每个 batch 审计完成后，结果文件名
 RESULT_FILENAME: str = "api_scan_findings.jsonl"
+
+
+# Windows 路径字段名列表（这些字段可能包含文件路径）
+PATH_FIELDS = [
+    "napi_file_path", "declaration_file", "NAPI_map_file",
+    "Framework_decl_file", "impl_file_path", "impl_repo_path",
+    "framework_header_path", "impl_cpp_path", "napi_file",
+    "framework_file", "impl_file", "js_doc"
+]
+
+
+def _sanitize_json_line(line: str) -> str:
+    """
+    处理 JSON 行中的无效转义序列。
+    将 Windows 路径中的单反斜杠转换为正斜杠。
+    """
+    pattern = r'"([^"]+)":\s*"([^"]*)"'
+
+    def replace_backslash_in_paths(match):
+        key = match.group(1)
+        value = match.group(2)
+        if key in PATH_FIELDS or (value and "\\" in value and ("workspace" in value or "repo" in value or ":" in value[:2] if len(value) >= 2 else False)):
+            value = value.replace("\\", "/")
+        return f'"{key}": "{value}"'
+
+    line = re.sub(pattern, replace_backslash_in_paths, line)
+    return line
+
+
+def load_jsonl_line(line: str) -> Dict[str, Any]:
+    """
+    安全解析一行 JSONL，自动处理 Windows 路径中的无效转义。
+    """
+    line = line.strip()
+    if not line:
+        raise json.JSONDecodeError("Empty line", line, 0)
+
+    try:
+        return json.loads(line)
+    except json.JSONDecodeError as e:
+        if "escape" in str(e).lower():
+            sanitized = _sanitize_json_line(line)
+            try:
+                record = json.loads(sanitized)
+                logger.debug("已修复无效转义序列: %s", line[:50])
+                return record
+            except json.JSONDecodeError as e2:
+                logger.error("无法解析 JSON 行: %s", line[:100])
+                raise e2
+        raise
 
 
 def load_and_split_impl_api(
@@ -35,7 +86,7 @@ def load_and_split_impl_api(
             line = line.strip()
             if not line:
                 continue
-            record = json.loads(line)
+            record = load_jsonl_line(line)
             if record.get("impl_api_name", "") == "":
                 empty_list.append(record)
             else:
@@ -70,7 +121,7 @@ def load_matching_api_data(
             line = line.strip()
             if not line:
                 continue
-            record = json.loads(line)
+            record = load_jsonl_line(line)
             key = (
                 record.get("api_declaration", ""),
                 record.get("module_name", ""),
@@ -201,7 +252,7 @@ def jsonl_to_xlsx(jsonl_path: Path, xlsx_path: Path) -> int:
             line = line.strip()
             if not line:
                 continue
-            records.append(json.loads(line))
+            records.append(load_jsonl_line(line))
 
     if not records:
         logger.info("JSONL 文件为空，跳过 XLSX 生成: %s", jsonl_path)

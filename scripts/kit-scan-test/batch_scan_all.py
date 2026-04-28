@@ -106,6 +106,9 @@ def build_command(
         "-group_size", str(group_size),
         "-api_error_code_doc_path", env["doc_path"],
     ]
+    # c_decl_path 是可选的，只有配置中存在且不为空时才添加
+    if env.get("c_decl_path"):
+        cmd.extend(["-c_decl_path", env["c_decl_path"]])
     if restart:
         cmd.append("-restart")
     if rule_xlsx:
