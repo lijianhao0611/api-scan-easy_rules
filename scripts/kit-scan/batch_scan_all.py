@@ -14,6 +14,8 @@ from pathlib import Path
 
 import sys; sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from scripts_logger import get_logger
+import batch_pipeline
+from batch_pipeline import load_jsonl_line
 
 logger = get_logger("batch_scan_all")
 
@@ -99,6 +101,73 @@ def build_command(kit_name: str, env: dict, env_out_path: str, restart: bool = F
     if restart:
         cmd.append("-restart")
     return cmd
+
+
+def merge_all_kit_findings(output_base: str, repo_dir: Path) -> Path:
+    """
+    汇总所有环境所有 Kit 的结果，生成总的 XLSX 文件。
+
+    扫描路径: output/{env}/{Kit}/batch_result/merged_api_scan_findings.jsonl
+    输出路径: repo/all_kits_api_scan_findings.xlsx
+    """
+    all_records: list[dict] = []
+    output_base = Path(output_base)
+
+    # 遍历所有环境的所有 Kit
+    for env_dir in output_base.iterdir():
+        if not env_dir.is_dir():
+            continue
+        for kit_dir in env_dir.iterdir():
+            if not kit_dir.is_dir():
+                continue
+            result_file = kit_dir / "batch_result" / "merged_api_scan_findings.jsonl"
+            if result_file.exists():
+                file_count = 0
+                with open(result_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            all_records.append(load_jsonl_line(line))
+                            file_count += 1
+                logger.info("已加载: %s (%d 条)", result_file.relative_to(output_base), file_count)
+
+    if not all_records:
+        logger.warning("未找到任何 Kit 结果文件，跳过汇总")
+        return None
+
+    # 输出到 repo 目录
+    xlsx_path = repo_dir / "all_kits_api_scan_findings.xlsx"
+    xlsx_path.parent.mkdir(parents=True, exist_ok=True)
+    jsonl_to_xlsx_from_records(all_records, xlsx_path)
+    logger.info("汇总完成: %s (共 %d 条)", xlsx_path, len(all_records))
+    return xlsx_path
+
+
+def jsonl_to_xlsx_from_records(records: list[dict], xlsx_path: Path) -> int:
+    """将记录列表直接转为 XLSX（复用 batch_pipeline 逻辑）。"""
+    from openpyxl import Workbook
+
+    if not records:
+        return 0
+
+    seen: set = set()
+    headers: list[str] = []
+    for rec in records:
+        for k in rec:
+            if k not in seen:
+                seen.add(k)
+                headers.append(k)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "audit_results"
+    ws.append(headers)
+
+    for rec in records:
+        ws.append([rec.get(h, "") for h in headers])
+
+    wb.save(str(xlsx_path))
+    return len(records)
 
 
 def parse_args():
@@ -217,6 +286,11 @@ def main():
         logger.info("=" * 60)
         logger.info("全部环境处理完毕，总耗时 %.1fs", total_elapsed)
         logger.info("=" * 60)
+
+        # 汇总所有 Kit 结果
+        merged_xlsx = merge_all_kit_findings(OUT_PATH, _CONFIG_DIR / "repo")
+        if merged_xlsx:
+            logger.info("汇总结果: %s", merged_xlsx)
 
 
 if __name__ == "__main__":
